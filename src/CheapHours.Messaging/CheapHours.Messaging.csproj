@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\CheapHours.Core\CheapHours.Core.csproj" />
+    <ProjectReference Include="..\CheapHours.Messaging.Contracts\CheapHours.Messaging.Contracts.csproj" />
+  </ItemGroup>
+</Project>

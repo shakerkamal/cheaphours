@@ -1,0 +1,27 @@
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+
+namespace CheapHours.Host.Api.Auth;
+
+/// <summary>Registers API-key authentication and the scope policies.</summary>
+internal static class ApiKeyAuthenticationSetup
+{
+    /// <summary>Adds the <c>ApiKey</c> scheme, the key store and the <c>scope:read</c>/<c>scope:execute</c> policies.</summary>
+    /// <param name="services">The service collection.</param>
+    /// <param name="configuration">The application configuration (section <c>ApiKeys</c>).</param>
+    /// <returns>The same service collection.</returns>
+    public static IServiceCollection AddApiKeyAuthentication(this IServiceCollection services, IConfiguration configuration)
+    {
+        services.Configure<ApiKeyOptions>(configuration.GetSection(ApiKeyOptions.SectionName));
+        services.TryAddSingleton<IApiKeyStore, InMemoryApiKeyStore>();
+
+        services.AddAuthentication(ApiKeyAuthenticationHandler.SchemeName)
+            .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>(ApiKeyAuthenticationHandler.SchemeName, configureOptions: null);
+
+        services.AddAuthorizationBuilder()
+            .AddPolicy(ApiScopes.ReadPolicy, policy => policy.RequireAuthenticatedUser().RequireClaim(ApiScopes.ClaimType, ApiScopes.Read))
+            .AddPolicy(ApiScopes.ExecutePolicy, policy => policy.RequireAuthenticatedUser().RequireClaim(ApiScopes.ClaimType, ApiScopes.Execute));
+
+        return services;
+    }
+}

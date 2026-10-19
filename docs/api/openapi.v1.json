@@ -1,0 +1,2074 @@
+{
+  "components": {
+    "schemas": {
+      "Capabilities": {
+        "enum": [
+          "None",
+          "ReadTelemetry",
+          "StartStop",
+          "SetPowerLimit",
+          "ReadStateOfCharge",
+          "PushesEvents"
+        ],
+        "type": "string"
+      },
+      "CommandAcceptedResponse": {
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/CommandId"
+          },
+          "state": {
+            "$ref": "#/components/schemas/CommandState"
+          }
+        },
+        "required": [
+          "id",
+          "state"
+        ],
+        "type": "object"
+      },
+      "CommandDto": {
+        "properties": {
+          "attempts": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "deviceId": {
+            "$ref": "#/components/schemas/DeviceId"
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/CommandHistoryEntryDto"
+            },
+            "type": "array"
+          },
+          "id": {
+            "$ref": "#/components/schemas/CommandId"
+          },
+          "parameters": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CommandParametersDto"
+              }
+            ]
+          },
+          "state": {
+            "$ref": "#/components/schemas/CommandState"
+          },
+          "type": {
+            "$ref": "#/components/schemas/CommandType"
+          }
+        },
+        "required": [
+          "id",
+          "deviceId",
+          "type",
+          "parameters",
+          "state",
+          "attempts",
+          "history"
+        ],
+        "type": "object"
+      },
+      "CommandHistoryEntryDto": {
+        "properties": {
+          "at": {
+            "format": "date-time"
+          },
+          "state": {
+            "$ref": "#/components/schemas/CommandState"
+          },
+          "vendorRef": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "state",
+          "at",
+          "vendorRef"
+        ],
+        "type": "object"
+      },
+      "CommandId": {
+        "description": "An opaque id starting with 'cmd_'.",
+        "pattern": "^cmd_[A-Za-z0-9_-]{1,64}$",
+        "type": "string"
+      },
+      "CommandParametersDto": {
+        "properties": {
+          "maxPowerW": {
+            "format": "int32",
+            "type": [
+              "null",
+              "integer"
+            ]
+          }
+        },
+        "required": [
+          "maxPowerW"
+        ],
+        "type": "object"
+      },
+      "CommandState": {
+        "enum": [
+          "Pending",
+          "Published",
+          "Sent",
+          "Confirmed",
+          "Reconciling",
+          "Rejected",
+          "DeadLettered"
+        ]
+      },
+      "CommandType": {
+        "enum": [
+          "StartCharging",
+          "StopCharging",
+          "SetPowerLimit"
+        ]
+      },
+      "CreateCommandRequest": {
+        "properties": {
+          "parameters": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CommandParametersDto"
+              }
+            ]
+          },
+          "type": {
+            "$ref": "#/components/schemas/CommandType"
+          }
+        },
+        "required": [
+          "type",
+          "parameters"
+        ],
+        "type": "object"
+      },
+      "CreateGoalRequest": {
+        "properties": {
+          "chargerDeviceId": {
+            "$ref": "#/components/schemas/DeviceId"
+          },
+          "departureAt": {
+            "format": "date-time"
+          },
+          "targetSocPercent": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "vehicleDeviceId": {
+            "$ref": "#/components/schemas/DeviceId"
+          }
+        },
+        "required": [
+          "vehicleDeviceId",
+          "chargerDeviceId",
+          "targetSocPercent",
+          "departureAt"
+        ],
+        "type": "object"
+      },
+      "DeviceDto": {
+        "properties": {
+          "batteryCapacityWh": {
+            "format": "int64",
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "capabilities": {
+            "items": {
+              "$ref": "#/components/schemas/Capabilities"
+            },
+            "type": "array"
+          },
+          "id": {
+            "$ref": "#/components/schemas/DeviceId"
+          },
+          "lastReading": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ReadingDto"
+              }
+            ]
+          },
+          "lastSeenAt": {
+            "format": "date-time"
+          },
+          "maxPowerW": {
+            "format": "int32",
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "providerId": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/DeviceStatus"
+          },
+          "type": {
+            "$ref": "#/components/schemas/DeviceType"
+          }
+        },
+        "required": [
+          "id",
+          "providerId",
+          "type",
+          "capabilities",
+          "status",
+          "lastSeenAt",
+          "lastReading",
+          "batteryCapacityWh",
+          "maxPowerW"
+        ],
+        "type": "object"
+      },
+      "DeviceId": {
+        "description": "An opaque id starting with 'dev_'.",
+        "pattern": "^dev_[A-Za-z0-9_-]{1,64}$",
+        "type": "string"
+      },
+      "DeviceStatus": {
+        "enum": [
+          "Unknown",
+          "Available",
+          "Charging",
+          "Faulted",
+          "Offline"
+        ]
+      },
+      "DeviceType": {
+        "enum": [
+          "Charger",
+          "Vehicle",
+          "HeatPump"
+        ]
+      },
+      "GoalCreatedResponse": {
+        "properties": {
+          "goal": {
+            "$ref": "#/components/schemas/GoalDto"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/PlanDto"
+          }
+        },
+        "required": [
+          "goal",
+          "plan"
+        ],
+        "type": "object"
+      },
+      "GoalDto": {
+        "properties": {
+          "chargerDeviceId": {
+            "$ref": "#/components/schemas/DeviceId"
+          },
+          "departureAt": {
+            "format": "date-time"
+          },
+          "id": {
+            "$ref": "#/components/schemas/GoalId"
+          },
+          "targetSocPercent": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "vehicleDeviceId": {
+            "$ref": "#/components/schemas/DeviceId"
+          }
+        },
+        "required": [
+          "id",
+          "vehicleDeviceId",
+          "chargerDeviceId",
+          "targetSocPercent",
+          "departureAt"
+        ],
+        "type": "object"
+      },
+      "GoalId": {
+        "description": "An opaque id starting with 'goal_'.",
+        "pattern": "^goal_[A-Za-z0-9_-]{1,64}$",
+        "type": "string"
+      },
+      "PageOfDeviceDto": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/DeviceDto"
+            },
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
+      "PageOfPriceSlotDto": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/PriceSlotDto"
+            },
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
+      "PageOfTelemetryBucketDto": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/TelemetryBucketDto"
+            },
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
+      "PlanConfirmedResponse": {
+        "properties": {
+          "commands": {
+            "items": {
+              "$ref": "#/components/schemas/CommandAcceptedResponse"
+            },
+            "type": "array"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/PlanDto"
+          }
+        },
+        "required": [
+          "plan",
+          "commands"
+        ],
+        "type": "object"
+      },
+      "PlanDto": {
+        "properties": {
+          "arrivalCostEur": {
+            "format": "double",
+            "type": "number"
+          },
+          "expectedCostEur": {
+            "format": "double",
+            "type": "number"
+          },
+          "expiresAt": {
+            "format": "date-time"
+          },
+          "goalId": {
+            "$ref": "#/components/schemas/GoalId"
+          },
+          "id": {
+            "$ref": "#/components/schemas/PlanId"
+          },
+          "savingsEur": {
+            "format": "double",
+            "type": "number"
+          },
+          "slots": {
+            "items": {
+              "$ref": "#/components/schemas/PlanSlotDto"
+            },
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PlanStatus"
+          },
+          "targetMissed": {
+            "type": "boolean"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "goalId",
+          "version",
+          "status",
+          "slots",
+          "expectedCostEur",
+          "arrivalCostEur",
+          "savingsEur",
+          "targetMissed",
+          "expiresAt"
+        ],
+        "type": "object"
+      },
+      "PlanId": {
+        "description": "An opaque id starting with 'plan_'.",
+        "pattern": "^plan_[A-Za-z0-9_-]{1,64}$",
+        "type": "string"
+      },
+      "PlanSlotDto": {
+        "properties": {
+          "end": {
+            "format": "date-time"
+          },
+          "powerW": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "start": {
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "start",
+          "end",
+          "powerW"
+        ],
+        "type": "object"
+      },
+      "PlanStatus": {
+        "enum": [
+          "Draft",
+          "Confirmed",
+          "Superseded",
+          "Expired"
+        ]
+      },
+      "PriceSlotDto": {
+        "properties": {
+          "end": {
+            "format": "date-time"
+          },
+          "priceEurPerMwh": {
+            "format": "double",
+            "type": "number"
+          },
+          "start": {
+            "format": "date-time"
+          },
+          "zone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "zone",
+          "start",
+          "end",
+          "priceEurPerMwh"
+        ],
+        "type": "object"
+      },
+      "ProblemDetails": {
+        "properties": {
+          "detail": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "errors": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": "Validation problems only: messages per invalid field.",
+            "type": "object"
+          },
+          "instance": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "status": {
+            "format": "int32",
+            "type": [
+              "null",
+              "integer"
+            ]
+          },
+          "title": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "traceId": {
+            "description": "The W3C trace id of the request; quote it when reporting a problem.",
+            "type": "string"
+          },
+          "type": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "ReadingDto": {
+        "properties": {
+          "energyWh": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "powerW": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "socPercent": {
+            "format": "double",
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "ts": {
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "ts",
+          "powerW",
+          "energyWh",
+          "socPercent"
+        ],
+        "type": "object"
+      },
+      "SavingsDto": {
+        "properties": {
+          "arrivalCostEur": {
+            "format": "double",
+            "type": "number"
+          },
+          "from": {
+            "format": "date-time"
+          },
+          "plannedCostEur": {
+            "format": "double",
+            "type": "number"
+          },
+          "savingsEur": {
+            "format": "double",
+            "type": "number"
+          },
+          "sessions": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "to": {
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "sessions",
+          "plannedCostEur",
+          "arrivalCostEur",
+          "savingsEur"
+        ],
+        "type": "object"
+      },
+      "TelemetryBucketDto": {
+        "properties": {
+          "avgPowerW": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "end": {
+            "format": "date-time"
+          },
+          "energyWh": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "socPercent": {
+            "format": "double",
+            "type": [
+              "null",
+              "number"
+            ]
+          },
+          "start": {
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "start",
+          "end",
+          "avgPowerW",
+          "energyWh",
+          "socPercent"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "ApiKey": {
+        "description": "An API key with the read scope, or read and execute. Keys are stored hashed and never logged.",
+        "in": "header",
+        "name": "X-Api-Key",
+        "type": "apiKey"
+      }
+    }
+  },
+  "info": {
+    "description": "Devices, day-ahead prices, charging goals and plans, and device commands. Authenticate with the X-Api-Key header. Errors are RFC 9457 Problem Details; the stable problem types are listed in x-problem-types.",
+    "title": "CheapHours API",
+    "version": "v1"
+  },
+  "openapi": "3.1.1",
+  "paths": {
+    "/v1/commands/{id}": {
+      "get": {
+        "operationId": "GetCommand",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "pattern": "^cmd_[A-Za-z0-9_-]{1,64}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`validation`: The request is malformed."
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`unauthorized`: A valid API key is required."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`forbidden`: The API key lacks the required scope."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`not-found`: The resource does not exist."
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`rate-limited`: Too many requests.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`internal`: An unexpected error occurred."
+          },
+          "501": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`not-implemented`: This endpoint is not implemented yet."
+          }
+        },
+        "security": [
+          {
+            "ApiKey": []
+          }
+        ],
+        "summary": "A command's state and history.",
+        "tags": [
+          "Commands"
+        ],
+        "x-required-scope": "read"
+      }
+    },
+    "/v1/devices": {
+      "get": {
+        "operationId": "ListDevices",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageOfDeviceDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`validation`: The request is malformed."
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`unauthorized`: A valid API key is required."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`forbidden`: The API key lacks the required scope."
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`rate-limited`: Too many requests.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`internal`: An unexpected error occurred."
+          },
+          "501": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`not-implemented`: This endpoint is not implemented yet."
+          }
+        },
+        "security": [
+          {
+            "ApiKey": []
+          }
+        ],
+        "summary": "List devices, with cursor paging.",
+        "tags": [
+          "Devices"
+        ],
+        "x-required-scope": "read"
+      }
+    },
+    "/v1/devices/{id}": {
+      "get": {
+        "operationId": "GetDevice",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "pattern": "^dev_[A-Za-z0-9_-]{1,64}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`validation`: The request is malformed."
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`unauthorized`: A valid API key is required."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`forbidden`: The API key lacks the required scope."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`not-found`: The resource does not exist."
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`rate-limited`: Too many requests.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`internal`: An unexpected error occurred."
+          },
+          "501": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`not-implemented`: This endpoint is not implemented yet."
+          }
+        },
+        "security": [
+          {
+            "ApiKey": []
+          }
+        ],
+        "summary": "One device and its last reading.",
+        "tags": [
+          "Devices"
+        ],
+        "x-required-scope": "read"
+      }
+    },
+    "/v1/devices/{id}/commands": {
+      "post": {
+        "operationId": "SendDeviceCommand",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "pattern": "^dev_[A-Za-z0-9_-]{1,64}$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Makes the request safe to repeat for 24 hours: the same key and body returns the first response; the same key with a different body gets 409 idempotency-key-reused.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCommandRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommandAcceptedResponse"
+                }
+              }
+            },
+            "description": "Accepted",
+            "headers": {
+              "Location": {
+                "description": "Where to follow the command: /v1/commands/{id}.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`validation`: The request is malformed."
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`unauthorized`: A valid API key is required."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`forbidden`: The API key lacks the required scope."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`not-found`: The resource does not exist."
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`conflict`: The request conflicts with the resource's current state. `idempotency-key-reused`: The Idempotency-Key was already used with a different body."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`unprocessable`: The request is well formed but cannot be carried out. `capability-not-supported`: The device does not support this command."
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`rate-limited`: Too many requests.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`internal`: An unexpected error occurred."
+          },
+          "501": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`not-implemented`: This endpoint is not implemented yet."
+          }
+        },
+        "security": [
+          {
+            "ApiKey": []
+          }
+        ],
+        "summary": "Send one command directly.",
+        "tags": [
+          "Devices"
+        ],
+        "x-required-scope": "execute"
+      }
+    },
+    "/v1/devices/{id}/telemetry": {
+      "get": {
+        "operationId": "GetDeviceTelemetry",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "pattern": "^dev_[A-Za-z0-9_-]{1,64}$",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "format": "date-time"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "format": "date-time"
+            }
+          },
+          {
+            "in": "query",
+            "name": "resolution",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageOfTelemetryBucketDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`validation`: The request is malformed."
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`unauthorized`: A valid API key is required."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`forbidden`: The API key lacks the required scope."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`not-found`: The resource does not exist."
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`rate-limited`: Too many requests.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`internal`: An unexpected error occurred."
+          },
+          "501": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`not-implemented`: This endpoint is not implemented yet."
+          }
+        },
+        "security": [
+          {
+            "ApiKey": []
+          }
+        ],
+        "summary": "Readings over time, in 15-minute buckets.",
+        "tags": [
+          "Devices"
+        ],
+        "x-required-scope": "read"
+      }
+    },
+    "/v1/goals": {
+      "post": {
+        "operationId": "CreateGoal",
+        "parameters": [
+          {
+            "description": "Makes the request safe to repeat for 24 hours: the same key and body returns the first response; the same key with a different body gets 409 idempotency-key-reused.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateGoalRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GoalCreatedResponse"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`validation`: The request is malformed."
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`unauthorized`: A valid API key is required."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`forbidden`: The API key lacks the required scope."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`not-found`: The resource does not exist."
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`conflict`: The request conflicts with the resource's current state. `idempotency-key-reused`: The Idempotency-Key was already used with a different body."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`unprocessable`: The request is well formed but cannot be carried out. `capability-not-supported`: The device does not support this command."
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`rate-limited`: Too many requests.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`internal`: An unexpected error occurred."
+          },
+          "501": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`not-implemented`: This endpoint is not implemented yet."
+          }
+        },
+        "security": [
+          {
+            "ApiKey": []
+          }
+        ],
+        "summary": "Set a goal; returns a draft plan.",
+        "tags": [
+          "Goals and plans"
+        ],
+        "x-required-scope": "read"
+      }
+    },
+    "/v1/goals/{id}/plan": {
+      "get": {
+        "operationId": "GetGoalPlan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "pattern": "^goal_[A-Za-z0-9_-]{1,64}$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`validation`: The request is malformed."
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`unauthorized`: A valid API key is required."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`forbidden`: The API key lacks the required scope."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`not-found`: The resource does not exist."
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`rate-limited`: Too many requests.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`internal`: An unexpected error occurred."
+          },
+          "501": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`not-implemented`: This endpoint is not implemented yet."
+          }
+        },
+        "security": [
+          {
+            "ApiKey": []
+          }
+        ],
+        "summary": "The goal's current plan with cost and savings.",
+        "tags": [
+          "Goals and plans"
+        ],
+        "x-required-scope": "read"
+      }
+    },
+    "/v1/plans/{id}/confirm": {
+      "post": {
+        "operationId": "ConfirmPlan",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "pattern": "^plan_[A-Za-z0-9_-]{1,64}$",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Makes the request safe to repeat for 24 hours: the same key and body returns the first response; the same key with a different body gets 409 idempotency-key-reused.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanConfirmedResponse"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`validation`: The request is malformed."
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`unauthorized`: A valid API key is required."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`forbidden`: The API key lacks the required scope."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`not-found`: The resource does not exist."
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`conflict`: The request conflicts with the resource's current state. `idempotency-key-reused`: The Idempotency-Key was already used with a different body."
+          },
+          "410": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`plan-expired`: The draft plan has expired."
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`rate-limited`: Too many requests.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`internal`: An unexpected error occurred."
+          },
+          "501": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`not-implemented`: This endpoint is not implemented yet."
+          }
+        },
+        "security": [
+          {
+            "ApiKey": []
+          }
+        ],
+        "summary": "Turn a draft plan into commands.",
+        "tags": [
+          "Goals and plans"
+        ],
+        "x-required-scope": "execute"
+      }
+    },
+    "/v1/prices": {
+      "get": {
+        "operationId": "ListPrices",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "zone",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "format": "date-time"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "format": "date-time"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageOfPriceSlotDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`validation`: The request is malformed."
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`unauthorized`: A valid API key is required."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`forbidden`: The API key lacks the required scope."
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`rate-limited`: Too many requests.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`internal`: An unexpected error occurred."
+          },
+          "501": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`not-implemented`: This endpoint is not implemented yet."
+          }
+        },
+        "security": [
+          {
+            "ApiKey": []
+          }
+        ],
+        "summary": "Day-ahead price slots in EUR/MWh.",
+        "tags": [
+          "Prices"
+        ],
+        "x-required-scope": "read"
+      }
+    },
+    "/v1/savings": {
+      "get": {
+        "operationId": "GetSavings",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "from",
+            "required": true,
+            "schema": {
+              "format": "date-time"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "required": true,
+            "schema": {
+              "format": "date-time"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavingsDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`validation`: The request is malformed."
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`unauthorized`: A valid API key is required."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`forbidden`: The API key lacks the required scope."
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`rate-limited`: Too many requests.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`internal`: An unexpected error occurred."
+          },
+          "501": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`not-implemented`: This endpoint is not implemented yet."
+          }
+        },
+        "security": [
+          {
+            "ApiKey": []
+          }
+        ],
+        "summary": "Savings over a period, against charging on arrival.",
+        "tags": [
+          "Savings"
+        ],
+        "x-required-scope": "read"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "Devices"
+    },
+    {
+      "name": "Prices"
+    },
+    {
+      "name": "Goals and plans"
+    },
+    {
+      "name": "Commands"
+    },
+    {
+      "name": "Savings"
+    }
+  ],
+  "x-problem-types": [
+    {
+      "description": "The body, a header or a query parameter is missing, has the wrong type or is out of range. The 'errors' member lists each field.",
+      "status": 400,
+      "title": "The request is malformed.",
+      "type": "https://cheaphours.dev/errors/validation"
+    },
+    {
+      "description": "The X-Api-Key header is missing or the key is unknown or revoked.",
+      "status": 401,
+      "title": "A valid API key is required.",
+      "type": "https://cheaphours.dev/errors/unauthorized"
+    },
+    {
+      "description": "The key is valid but does not carry the scope this endpoint needs (read or execute).",
+      "status": 403,
+      "title": "The API key lacks the required scope.",
+      "type": "https://cheaphours.dev/errors/forbidden"
+    },
+    {
+      "description": "No resource with this id is visible to the key's owner, or the path is not part of the API.",
+      "status": 404,
+      "title": "The resource does not exist.",
+      "type": "https://cheaphours.dev/errors/not-found"
+    },
+    {
+      "description": "For example, the plan is already confirmed or has been superseded by a newer version.",
+      "status": 409,
+      "title": "The request conflicts with the resource's current state.",
+      "type": "https://cheaphours.dev/errors/conflict"
+    },
+    {
+      "description": "Repeat a request with the same key only with the same body, or use a new key for a new request.",
+      "status": 409,
+      "title": "The Idempotency-Key was already used with a different body.",
+      "type": "https://cheaphours.dev/errors/idempotency-key-reused"
+    },
+    {
+      "description": "Draft plans must be confirmed before their expiry time. Request a new plan for the goal.",
+      "status": 410,
+      "title": "The draft plan has expired.",
+      "type": "https://cheaphours.dev/errors/plan-expired"
+    },
+    {
+      "description": "For example, the departure time is in the past or the target is below the vehicle's current charge.",
+      "status": 422,
+      "title": "The request is well formed but cannot be carried out.",
+      "type": "https://cheaphours.dev/errors/unprocessable"
+    },
+    {
+      "description": "The device's capabilities do not include what the command needs, for example a power limit.",
+      "status": 422,
+      "title": "The device does not support this command.",
+      "type": "https://cheaphours.dev/errors/capability-not-supported"
+    },
+    {
+      "description": "The key exceeded its request rate. Wait for the number of seconds in the Retry-After header.",
+      "status": 429,
+      "title": "Too many requests.",
+      "type": "https://cheaphours.dev/errors/rate-limited"
+    },
+    {
+      "description": "The server failed to handle the request. Quote the traceId when reporting it; no internal details are returned.",
+      "status": 500,
+      "title": "An unexpected error occurred.",
+      "type": "https://cheaphours.dev/errors/internal"
+    },
+    {
+      "description": "The endpoint is part of the v1 contract but its behaviour is still being built.",
+      "status": 501,
+      "title": "This endpoint is not implemented yet.",
+      "type": "https://cheaphours.dev/errors/not-implemented"
+    }
+  ]
+}

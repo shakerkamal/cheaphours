@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="TngTech.ArchUnitNET.xUnitV3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CheapHours.Core\CheapHours.Core.csproj" />
+    <ProjectReference Include="..\..\src\CheapHours.Messaging.Contracts\CheapHours.Messaging.Contracts.csproj" />
+    <ProjectReference Include="..\..\src\CheapHours.Planning\CheapHours.Planning.csproj" />
+    <ProjectReference Include="..\..\src\CheapHours.Persistence\CheapHours.Persistence.csproj" />
+    <ProjectReference Include="..\..\src\CheapHours.Messaging\CheapHours.Messaging.csproj" />
+    <ProjectReference Include="..\..\src\CheapHours.Providers.Kit\CheapHours.Providers.Kit.csproj" />
+    <ProjectReference Include="..\..\src\CheapHours.Providers.Kit.Testing\CheapHours.Providers.Kit.Testing.csproj" />
+    <ProjectReference Include="..\..\src\CheapHours.Providers.Ocpp\CheapHours.Providers.Ocpp.csproj" />
+    <ProjectReference Include="..\..\src\CheapHours.Providers.CarCloud\CheapHours.Providers.CarCloud.csproj" />
+    <ProjectReference Include="..\..\src\CheapHours.Providers.HeatPumpCloud\CheapHours.Providers.HeatPumpCloud.csproj" />
+    <ProjectReference Include="..\..\src\CheapHours.Host\CheapHours.Host.csproj" />
+  </ItemGroup>
+</Project>

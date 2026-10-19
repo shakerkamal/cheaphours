@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <ItemGroup>
+    <ProjectReference Include="..\CheapHours.Core\CheapHours.Core.csproj" />
+    <ProjectReference Include="..\CheapHours.Messaging.Contracts\CheapHours.Messaging.Contracts.csproj" />
+    <ProjectReference Include="..\CheapHours.Planning\CheapHours.Planning.csproj" />
+    <ProjectReference Include="..\CheapHours.Persistence\CheapHours.Persistence.csproj" />
+    <ProjectReference Include="..\CheapHours.Messaging\CheapHours.Messaging.csproj" />
+    <ProjectReference Include="..\CheapHours.Providers.Kit\CheapHours.Providers.Kit.csproj" />
+    <ProjectReference Include="..\CheapHours.Providers.Ocpp\CheapHours.Providers.Ocpp.csproj" />
+    <ProjectReference Include="..\CheapHours.Providers.CarCloud\CheapHours.Providers.CarCloud.csproj" />
+    <ProjectReference Include="..\CheapHours.Providers.HeatPumpCloud\CheapHours.Providers.HeatPumpCloud.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Scalar.AspNetCore" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="CheapHours.UnitTests" />
+    <InternalsVisibleTo Include="CheapHours.ApiTests" />
+  </ItemGroup>
+</Project>

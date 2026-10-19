@@ -1,0 +1,20 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/CheapHours.Core/CheapHours.Core.csproj" />
+    <Project Path="src/CheapHours.Host/CheapHours.Host.csproj" />
+    <Project Path="src/CheapHours.Messaging.Contracts/CheapHours.Messaging.Contracts.csproj" />
+    <Project Path="src/CheapHours.Messaging/CheapHours.Messaging.csproj" />
+    <Project Path="src/CheapHours.Persistence/CheapHours.Persistence.csproj" />
+    <Project Path="src/CheapHours.Planning/CheapHours.Planning.csproj" />
+    <Project Path="src/CheapHours.Providers.CarCloud/CheapHours.Providers.CarCloud.csproj" />
+    <Project Path="src/CheapHours.Providers.HeatPumpCloud/CheapHours.Providers.HeatPumpCloud.csproj" />
+    <Project Path="src/CheapHours.Providers.Kit.Testing/CheapHours.Providers.Kit.Testing.csproj" />
+    <Project Path="src/CheapHours.Providers.Kit/CheapHours.Providers.Kit.csproj" />
+    <Project Path="src/CheapHours.Providers.Ocpp/CheapHours.Providers.Ocpp.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/CheapHours.ApiTests/CheapHours.ApiTests.csproj" />
+    <Project Path="tests/CheapHours.ArchitectureTests/CheapHours.ArchitectureTests.csproj" />
+    <Project Path="tests/CheapHours.UnitTests/CheapHours.UnitTests.csproj" />
+  </Folder>
+</Solution>
