@@ -1,0 +1,6 @@
+* text=auto
+
+# The committed OpenAPI contract must compare byte-for-byte on Windows and Linux.
+docs/api/*.json text eol=lf
+
+*.sh text eol=lf
