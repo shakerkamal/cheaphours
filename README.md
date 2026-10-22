@@ -40,7 +40,7 @@ dotnet run --project src/CheapHours.Host -- --role worker
 
 ## Documentation
 
-- [AGENTS.md](AGENTS.md): conventions, boundaries and live progress
+- [AGENTS.md](AGENTS.md): conventions, boundaries, and what is built and what is left
 - [Decision records](docs/adr/README.md): why it is built this way, and what was rejected
 - [OpenAPI contract](docs/api/openapi.v1.json): the committed `/v1` contract; in Development the API also serves an interactive reference at `/scalar/v1`
 

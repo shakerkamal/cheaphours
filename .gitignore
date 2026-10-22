@@ -483,3 +483,6 @@ $RECYCLE.BIN/
 
 # Local agent settings
 .claude/settings.local.json
+
+# OpenSpec working files (local only)
+openspec/
