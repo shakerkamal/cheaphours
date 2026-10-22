@@ -16,7 +16,7 @@ page is binding.
 |---|---|
 | Notion: *CheapHours: System Design* | Architecture, data model, flows, reliability table, API surface |
 | Notion: *CheapHours: Project Idea & Positioning* | Scope, what to leave out, the "done when" checklists |
-| `docs/plan.md` | Build plan, decisions D1–D9, API conventions |
+| `docs/plan.md` | Build plan, decisions D1–D9, API conventions (local only, git-ignored) |
 | `openspec/` | Specs and changes (local only, git-ignored): `changes/` holds the active change, `specs/` the accepted specs |
 | `docs/adr/` | Decision records |
 
@@ -78,7 +78,7 @@ page is binding.
 - D8: rename "WattBridge" to CheapHours in Notion (user).
 - D9: needs the week-by-week roadmap from the user.
 
-### Decisions (from `docs/plan.md`)
+### Decisions
 
 | # | Topic | Status |
 |---|---|---|
@@ -236,4 +236,5 @@ public sealed record DeviceReading
 - Delete or skip a failing test to get green.
 - Make a breaking change inside `/v1`.
 - Start the next change before the user approves the current one's gate.
-- Commit anything under `openspec/`.
+- Commit anything under `openspec/`, `docs/plan.md`, or the OpenSpec tooling (`.claude/commands/opsx/`,
+  `.claude/skills/openspec-*`, `.agents/`).

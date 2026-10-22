@@ -486,3 +486,9 @@ $RECYCLE.BIN/
 
 # OpenSpec working files (local only)
 openspec/
+
+# Local planning and OpenSpec tooling (local only)
+docs/plan.md
+.agents/
+.claude/commands/opsx/
+.claude/skills/openspec-*/
