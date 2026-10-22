@@ -1,8 +1,8 @@
 namespace CheapHours.Core.Commands;
 
 /// <summary>
-/// Where a command is in its lifecycle (D7, confirmed against the System Design diagram). Allowed
-/// transitions are defined by the command state machine.
+/// Where a command is in its lifecycle (D7, confirmed against the System Design diagram). The allowed
+/// transitions are <see cref="CommandTransitions.Table"/>.
 /// </summary>
 public enum CommandState
 {
