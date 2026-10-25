@@ -1,0 +1,63 @@
+# Local development stack: MongoDB (single-node replica set), RabbitMQ and an OCPP 1.6 charge-point
+# simulator that connects to the gateway running on this machine (dotnet run ... --role gateway).
+# Copy .env.example to .env first; see README "Run locally".
+name: cheaphours
+
+services:
+  mongo:
+    image: mongo:8.0.32
+    command: ["--replSet", "rs0", "--bind_ip_all"]
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      # Initiates the replica set on first start; healthy once this member is PRIMARY.
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - --eval
+        - "try { quit(rs.status().myState === 1 ? 0 : 1) } catch (e) { rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'localhost:27017' }] }); quit(1) }"
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+      start_interval: 2s
+
+  rabbitmq:
+    image: rabbitmq:4.2.9-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+      start_interval: 2s
+
+  ocpp-simulator:
+    build: ./docker/ocpp-simulator
+    image: cheaphours/ocpp-simulator:69bc17c
+    environment:
+      WS_URL: ws://host.docker.internal:${GATEWAY_PORT:-5081}/ocpp
+      CP_ID: ${CP_ID:?set CP_ID in .env}
+      PASSWORD: ${CP_PASSWORD:?set CP_PASSWORD in .env}
+      DISABLE_METER_VALUES: "true"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+    healthcheck:
+      # Healthy while the restart loop runs: connected, or retrying until the gateway is up. The
+      # simulator process itself is gone for 3 s between retries, so checking for it flaps.
+      test: ["CMD", "pgrep", "-f", "run-simulator"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+      start_interval: 2s
+
+volumes:
+  mongo-data:

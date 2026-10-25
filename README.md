@@ -17,7 +17,8 @@ are never lost and never applied twice.
 ## Prerequisites
 
 - .NET SDK 10.0.401 (pinned in `global.json`)
-- Docker (for MongoDB, RabbitMQ and the simulators, once the local environment lands)
+- Docker (Docker Desktop on Windows or macOS) for the local stack and the integration tests; `dotnet test`
+  needs a running Docker engine
 
 ## Build and test
 
@@ -37,6 +38,49 @@ dotnet run --project src/CheapHours.Host -- --role api
 dotnet run --project src/CheapHours.Host -- --role gateway
 dotnet run --project src/CheapHours.Host -- --role worker
 ```
+
+## Run locally
+
+The local stack is MongoDB (a single-node replica set), RabbitMQ and an OCPP 1.6 charge-point simulator.
+The simulator connects to the gateway running on your machine.
+
+1. **Make a charger password.** It is 20 random bytes written as 40 hex characters. Print it and its
+   SHA-256:
+
+   ```powershell
+   $p = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(20)).ToLowerInvariant(); $p
+   [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($p))).ToLowerInvariant()
+   ```
+
+   ```sh
+   p=$(openssl rand -hex 20); echo "$p"; printf %s "$p" | sha256sum | cut -d' ' -f1
+   ```
+
+2. **Give the password to the simulator and the hash to the gateway.** Copy `.env.example` to `.env`
+   (git-ignored) and set `CP_PASSWORD`. Then store the hash in the gateway's user secrets:
+
+   ```sh
+   dotnet user-secrets --project src/CheapHours.Host set "Providers:Ocpp:ChargePoints:0:PasswordHash" <hash>
+   ```
+
+   The gateway only ever sees the hash. The simulator logs its own settings when it connects,
+   password included, so don't share its container logs.
+
+3. **Start the stack** and wait until all three services are healthy:
+
+   ```sh
+   docker compose up -d --wait
+   ```
+
+4. **Run the gateway.** The simulator connects within a few seconds, boots and reports `Available`:
+
+   ```sh
+   dotnet run --project src/CheapHours.Host -- --role gateway --urls http://localhost:5081
+   ```
+
+   Health: `http://localhost:5081/health/live` and `http://localhost:5081/health/ready`.
+
+`docker compose down -v` stops everything and deletes the local data.
 
 ## Documentation
 

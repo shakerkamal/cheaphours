@@ -492,3 +492,6 @@ docs/plan.md
 .agents/
 .claude/commands/opsx/
 .claude/skills/openspec-*/
+
+# Local secrets for docker compose
+.env

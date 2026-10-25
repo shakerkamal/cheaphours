@@ -53,9 +53,25 @@ public class ApiFactory : WebApplicationFactory<Program>
     }
 }
 
-/// <summary>Runs the host in the gateway role.</summary>
+/// <summary>
+/// Runs the host in the gateway role without a database: MongoDB points at a closed port, so the gateway
+/// stays "starting" (its background setup keeps retrying), which is enough to check which routes it maps.
+/// </summary>
 public sealed class GatewayFactory : ApiFactory
 {
     /// <inheritdoc/>
     protected override string Role => "gateway";
+
+    /// <inheritdoc/>
+    protected override void ConfigureWebHost(IWebHostBuilder builder)
+    {
+        base.ConfigureWebHost(builder);
+        builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
+        {
+            // The Development charger registration needs a hash; this one is the SHA-256 of nothing in particular.
+            ["Providers:Ocpp:ChargePoints:0:PasswordHash"] = new string('0', 64),
+            ["ConnectionStrings:Mongo"] = "mongodb://127.0.0.1:1/?directConnection=true",
+            ["Mongo:ServerSelectionTimeout"] = "00:00:00.500",
+        }));
+    }
 }

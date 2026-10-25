@@ -15,6 +15,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/CheapHours.ApiTests/CheapHours.ApiTests.csproj" />
     <Project Path="tests/CheapHours.ArchitectureTests/CheapHours.ArchitectureTests.csproj" />
+    <Project Path="tests/CheapHours.IntegrationTests/CheapHours.IntegrationTests.csproj" />
     <Project Path="tests/CheapHours.UnitTests/CheapHours.UnitTests.csproj" />
   </Folder>
 </Solution>

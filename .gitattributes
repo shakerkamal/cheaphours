@@ -4,3 +4,6 @@
 docs/api/*.json text eol=lf
 
 *.sh text eol=lf
+
+# Third-party OCPP schemas are kept byte-for-byte as published (hash-checked by tests).
+src/CheapHours.Providers.Ocpp/Schemas/v16/*.json text eol=lf

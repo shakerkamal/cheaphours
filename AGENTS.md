@@ -22,7 +22,7 @@ page is binding.
 
 ## Status
 
-**Next:** the OCPP gateway (`/opsx:propose add-ocpp-gateway`), then stop for review.
+**Next:** propose the telemetry pipeline.
 
 ### Done
 
@@ -44,19 +44,40 @@ page is binding.
   deterministic planned-command keys, retry policy with jittered backoff and `Retry-After`, reconcile
   decision (confirm, resend or fail) against the device's last observation. Property tests (FsCheck)
   cover terminal states and key uniqueness.
+- **Local environment:** `docker compose` with MongoDB 8.0 (single-node replica set, self-initialising),
+  RabbitMQ 4.2 and the Solidstudio OCPP 1.6 simulator built from a pinned commit; local secrets in a
+  git-ignored `.env`, the gateway's copy as a hash in `dotnet user-secrets`.
+- **OCPP gateway (gateway role):**
+  - `/ocpp/{chargePointId}` WebSocket: basic auth against `chargePoints` (SHA-256, constant-time) and the
+    `ocpp1.6` subprotocol, both checked before the upgrade; registrations seeded from configuration.
+  - OCPP-J codec and validation against the official OCPP 1.6 schemas (embedded unchanged,
+    CC BY-ND 4.0, hash-checked); malformed or invalid frames get a `CallError`, never a dropped socket.
+  - `BootNotification`, `Heartbeat`, `StatusNotification`; other actions `NotSupported`/`NotImplemented`.
+  - Each registration carries the charger's `maxPowerW` (D2).
+  - A `devices` document per charger, created when its connection is accepted (a reconnecting charger
+    does not boot again); status and `lastSeenAt` only move forward (charger reports compare
+    with the last report, gateway-set `Unknown`/`Offline` with the current status).
+  - Connection registry `chargePointId → replicaId` (D1) with conditional removal; a newer connection
+    replaces an older one (1008).
+  - Offline after three missed heartbeat intervals (`DevicePresence` in Core, a monitor on `TimeProvider`).
+  - Graceful shutdown (1001, registry sweep, devices not flapped to offline); `/health/live`,
+    `/health/ready`.
+  - MongoDB setup and seeding retry in the background, so a slow database delays readiness instead of
+    crashing the gateway.
+- **Persistence (first MongoDB code):** `chargePoints`, `devices`, `connections` stores, index creation,
+  camelCase and enum-name conventions, `schemaVersion` on every document.
 - **ADRs:** 001 (modular monolith), 008 (gateway command routing).
-- **Tests:** 309 green (unit, property, architecture, API contract).
+- **Tests:** 570 green (unit, property, architecture, API contract, and integration tests against a
+  real MongoDB in Testcontainers and a real gateway on Kestrel). `dotnet test` needs Docker running.
 
 ### Left to build
 
-- **Local environment:** `docker compose` with MongoDB (single-node replica set), RabbitMQ and an OCPP
-  charge-point simulator.
-- **OCPP gateway:** `/ocpp/{chargePointId}` WebSocket (`ocpp1.6`, basic auth), OCPP-J frame codec with
-  schema validation, `BootNotification`/`Heartbeat`/`StatusNotification`, connection registry, offline
-  after missed heartbeats, graceful shutdown, health endpoints.
 - **Telemetry pipeline:** MongoDB indexes and time-series `telemetry` with TTL, `MeterValues` to readings,
   RabbitMQ topology with DLQ and retries, inbox and batched consumer, device and telemetry endpoints,
-  API keys stored in MongoDB.
+  API keys stored in MongoDB, the gateway recording the `DeviceEvent`s from `OcppProvider.Translate`
+  instead of OCPP-specific effects (today it calls `OcppCallHandler` directly, so the translator only
+  runs in tests), one device model (fold the persistence `DeviceState` into Core's `Device`
+  once the devices endpoint shows what the read side needs).
 - **Cloud providers:** kit resilience (per-provider `HttpClient` pipeline, token store, rate limiting with
   `Retry-After`), shared provider contract suite, car-cloud simulator and polling provider, heat-pump
   simulator and webhook provider, polling scheduler with a leader lock, bulkhead test, OCPP on the suite.
@@ -73,8 +94,9 @@ page is binding.
 
 ### Open items
 
-- Waiting for the user's review: the database ERD, and the owners-and-auth proposal (`chargePoints`
-  collection, another owner's id answers 404, `apiKeys` gain `createdAt`/`revokedAt`).
+- Waiting for the user's review: the database ERD.
+- The read side (devices endpoint) should apply `DevicePresence` to `lastSeenAt`, so a charger whose
+  gateway replica crashed is not shown as online.
 - D8: rename "WattBridge" to CheapHours in Notion (user).
 - D9: needs the week-by-week roadmap from the user.
 
@@ -82,7 +104,7 @@ page is binding.
 
 | # | Topic | Status |
 |---|---|---|
-| D1 | Worker → charger via per-replica gateway queue | Accepted: [ADR-008](docs/adr/008-gateway-command-routing.md); routing key in `GatewayCommand` |
+| D1 | Worker → charger via per-replica gateway queue | Accepted: [ADR-008](docs/adr/008-gateway-command-routing.md); routing key in `GatewayCommand`; connection registry built |
 | D2 | Goal has vehicle + charger; typed device attributes | Accepted: `Goal`, `DeviceAttributes` |
 | D3 | `apiKeys` + `ownerId`; one seeded demo user | Accepted: shape and in-memory key store built; MongoDB storage comes with the telemetry pipeline |
 | D4 | 15-minute slots everywhere | Accepted: `PlanSlot` |
@@ -101,11 +123,14 @@ Pinned in `Directory.Packages.props`. `Microsoft.*` 10.0.x packages match the in
 |---|---|---|
 | Microsoft.AspNetCore.OpenApi | 10.0.12 | Host (API role) |
 | Microsoft.Extensions.Hosting.Abstractions | 10.0.12 | Providers.Kit |
-| Microsoft.Extensions.Options.ConfigurationExtensions | 10.0.12 | Providers.Kit |
+| Microsoft.Extensions.Options.ConfigurationExtensions | 10.0.12 | Providers.Kit, Persistence |
+| MongoDB.Driver | 3.12.0 | Persistence (and Host through it) |
+| NJsonSchema | 11.6.1 | Providers.Ocpp (OCPP 1.6 schemas are draft-04; brings in Newtonsoft.Json) |
 | Scalar.AspNetCore | 2.18.0 | Host (Development only) |
 | FsCheck.Xunit.v3 | 3.5.0 | UnitTests (property tests) |
 | Microsoft.AspNetCore.Mvc.Testing | 10.0.12 | ApiTests |
 | Microsoft.Extensions.TimeProvider.Testing | 10.11.0 | UnitTests |
+| Testcontainers.MongoDb | 4.16.0 | IntegrationTests |
 | TngTech.ArchUnitNET.xUnitV3 | 0.13.4 | ArchitectureTests |
 | xunit.v3 | 4.0.2 | all tests |
 
@@ -128,10 +153,12 @@ then the code. `openspec/` stays out of git.
 
 ```
 dotnet build                                   # must report 0 warnings
-dotnet test                                    # unit, architecture, API contract tests
+dotnet test                                    # all tests; integration tests need Docker running
 dotnet test --project tests/CheapHours.UnitTests --filter-class "*RoleParserTests"   # one class (MTP/xUnit v3 syntax)
 dotnet test --filter-method "*Role*"           # by method name; VSTest-style --filter is not supported
-dotnet run --project src/CheapHours.Host -- --role api      # or gateway | worker
+dotnet run --project src/CheapHours.Host -- --role api      # or gateway | worker (Development via launchSettings)
+docker compose up -d --wait                    # local MongoDB, RabbitMQ, OCPP simulator (needs .env, see README)
+dotnet run --project src/CheapHours.Host -- --role gateway --urls http://localhost:5081   # simulator connects here
 UPDATE_SNAPSHOT=1 dotnet test --project tests/CheapHours.ApiTests   # deliberately refresh docs/api/openapi.v1.json
 openspec validate --strict                     # check all changes and specs
 openspec status --change <name>                # artifact progress
@@ -143,13 +170,15 @@ openspec status --change <name>                # artifact progress
 src/CheapHours.Core                  domain types; references nothing, no I/O
 src/CheapHours.Messaging.Contracts   message records + shared JSON options; references Core only
 src/CheapHours.Planning              planner (not built yet)
-src/CheapHours.Persistence           MongoDB repositories (not built yet)
+src/CheapHours.Persistence           MongoDB stores: chargePoints, devices, connections; index creation
 src/CheapHours.Messaging             outbox, inbox, RabbitMQ (not built yet)
 src/CheapHours.Providers.Kit         adapter interfaces, registration, resilience
 src/CheapHours.Providers.Kit.Testing shared provider contract suite (not built yet)
 src/CheapHours.Providers.{Ocpp,CarCloud,HeatPumpCloud}
 src/CheapHours.Host                  single entry point: --role api | gateway | worker
-tests/                               UnitTests, ArchitectureTests, ApiTests (+ later Integration, Contract, EndToEnd)
+tests/                               UnitTests, ArchitectureTests, ApiTests, IntegrationTests (+ later Contract, EndToEnd)
+docker/ocpp-simulator/               pinned build of the OCPP 1.6 charge-point simulator
+docker-compose.yml, .env.example     local stack; .env is git-ignored
 docs/api/openapi.v1.json             committed public contract
 docs/adr/                            decision records
 openspec/                            specs and changes (local only, git-ignored)
@@ -209,8 +238,10 @@ public sealed record DeviceReading
 - Unit (xUnit, `FakeTimeProvider`) and property-based (FsCheck) for planner and state machine, written test-first.
 - Architecture (ArchUnitNET) for module boundaries; each rule is proven by planting a violation once.
 - API contract: snapshot of `/openapi/v1.json` plus behaviour tests via `WebApplicationFactory`.
-- Integration (Testcontainers, real MongoDB and RabbitMQ) once persistence and messaging land; provider
-  contract suite (WireMock.Net) with the cloud providers.
+- Integration (`tests/CheapHours.IntegrationTests`): one Testcontainers MongoDB replica set per run
+  (assembly fixture), a fresh database per test class or gateway host; the gateway runs on real Kestrel
+  (`WebApplicationFactory.UseKestrel`) with real `ClientWebSocket` chargers. RabbitMQ joins with
+  messaging; the provider contract suite (WireMock.Net) with the cloud providers.
 - Never mock our own interfaces in integration tests; use real containers or faithful fakes.
 - Failure paths first: every row of the System Design reliability table gets a test.
 

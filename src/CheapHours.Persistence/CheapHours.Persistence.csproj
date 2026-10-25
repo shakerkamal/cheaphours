@@ -2,4 +2,13 @@
   <ItemGroup>
     <ProjectReference Include="..\CheapHours.Core\CheapHours.Core.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
+    <PackageReference Include="MongoDB.Driver" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="CheapHours.IntegrationTests" />
+  </ItemGroup>
 </Project>

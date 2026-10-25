@@ -9,5 +9,6 @@
     <ProjectReference Include="..\..\src\CheapHours.Messaging.Contracts\CheapHours.Messaging.Contracts.csproj" />
     <ProjectReference Include="..\..\src\CheapHours.Providers.Kit\CheapHours.Providers.Kit.csproj" />
     <ProjectReference Include="..\..\src\CheapHours.Host\CheapHours.Host.csproj" />
+    <ProjectReference Include="..\..\src\CheapHours.Providers.Ocpp\CheapHours.Providers.Ocpp.csproj" />
   </ItemGroup>
 </Project>

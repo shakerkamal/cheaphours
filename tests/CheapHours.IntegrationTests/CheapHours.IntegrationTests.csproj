@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+    <PackageReference Include="Testcontainers.MongoDb" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CheapHours.Core\CheapHours.Core.csproj" />
+    <ProjectReference Include="..\..\src\CheapHours.Host\CheapHours.Host.csproj" />
+    <ProjectReference Include="..\..\src\CheapHours.Persistence\CheapHours.Persistence.csproj" />
+    <ProjectReference Include="..\..\src\CheapHours.Providers.Ocpp\CheapHours.Providers.Ocpp.csproj" />
+  </ItemGroup>
+</Project>

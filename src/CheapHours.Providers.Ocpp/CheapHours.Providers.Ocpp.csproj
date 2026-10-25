@@ -3,4 +3,17 @@
     <ProjectReference Include="..\CheapHours.Core\CheapHours.Core.csproj" />
     <ProjectReference Include="..\CheapHours.Providers.Kit\CheapHours.Providers.Kit.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="NJsonSchema" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Official OCPP 1.6 JSON schemas (draft-04), loaded by OcppSchemaValidator. -->
+    <EmbeddedResource Include="Schemas\v16\*.json" LogicalName="Ocpp16.%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="CheapHours.UnitTests" />
+  </ItemGroup>
 </Project>
