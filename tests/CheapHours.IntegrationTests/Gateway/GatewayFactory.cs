@@ -2,6 +2,7 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using CheapHours.IntegrationTests.Infrastructure;
+using CheapHours.Messaging;
 using CheapHours.Persistence.ChargePoints;
 using CheapHours.Persistence.Connections;
 using CheapHours.Persistence.Devices;
@@ -49,6 +50,12 @@ public sealed class GatewayFactory : WebApplicationFactory<Program>
 
     /// <summary>Gets the database this host uses.</summary>
     public string DatabaseName { get; init; }
+
+    /// <summary>Gets the prefix of every exchange and queue this host declares, so hosts never share them.</summary>
+    public string QueuePrefix { get; } = RabbitMqFixture.NewPrefix("gateway");
+
+    /// <summary>Gets the topology the host declared.</summary>
+    public MessagingTopology Topology => Services.GetRequiredService<MessagingTopology>();
 
     /// <summary>Gets every log line the host wrote.</summary>
     public CapturingLoggerProvider Logs { get; } = new();
@@ -124,6 +131,8 @@ public sealed class GatewayFactory : WebApplicationFactory<Program>
             {
                 ["ConnectionStrings:Mongo"] = _connectionString,
                 ["Mongo:Database"] = DatabaseName,
+                ["ConnectionStrings:RabbitMq"] = RabbitMqFixture.SharedConnectionString,
+                ["Messaging:QueuePrefix"] = QueuePrefix,
                 ["Gateway:ReplicaId"] = ReplicaId,
                 ["Gateway:DrainTimeoutSeconds"] = "5",
                 ["Providers:Ocpp:HeartbeatIntervalSeconds"] = "60",

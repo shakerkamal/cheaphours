@@ -1,4 +1,5 @@
 using CheapHours.Core.Ids;
+using CheapHours.Messaging;
 using CheapHours.Persistence;
 using CheapHours.Persistence.ChargePoints;
 using CheapHours.Providers.Ocpp;
@@ -8,14 +9,16 @@ using MongoDB.Driver;
 namespace CheapHours.Host.Gateway;
 
 /// <summary>
-/// Creates the indexes and seeds the configured charger registrations, retrying until MongoDB answers, then
-/// marks the gateway initialised. Until then readiness fails and chargers get 503, so a slow database at
-/// startup delays the gateway instead of crash-looping it. Invalid configuration still fails startup, because
-/// the options are validated before this runs.
+/// Creates the indexes, seeds the configured charger registrations, connects to RabbitMQ and declares the
+/// topology, retrying until MongoDB and the broker answer, then marks the gateway initialised. Until then
+/// readiness fails and chargers get 503, so a slow dependency at startup delays the gateway instead of
+/// crash-looping it. Invalid configuration, or a collection or queue of the wrong shape, still stops it.
 /// </summary>
 /// <param name="database">The database.</param>
 /// <param name="registrations">The registrations store.</param>
 /// <param name="options">The OCPP options with the configured registrations.</param>
+/// <param name="broker">The broker connection.</param>
+/// <param name="topology">The topology to declare.</param>
 /// <param name="state">The gateway state to mark.</param>
 /// <param name="time">The clock.</param>
 /// <param name="logger">The logger.</param>
@@ -23,6 +26,8 @@ internal sealed partial class GatewayStartup(
     IMongoDatabase database,
     IChargePointRegistrations registrations,
     IOptions<OcppOptions> options,
+    RabbitMqConnection broker,
+    MessagingTopology topology,
     GatewayState state,
     TimeProvider time,
     ILogger<GatewayStartup> logger) : BackgroundService
@@ -44,11 +49,14 @@ internal sealed partial class GatewayStartup(
                     await registrations.SeedAsync(registration, time.GetUtcNow(), stoppingToken).ConfigureAwait(false);
                 }
 
+                var connection = await broker.ConnectAsync(stoppingToken).ConfigureAwait(false);
+                await TopologyDeclarer.DeclareAsync(connection, topology, stoppingToken).ConfigureAwait(false);
+
                 state.MarkInitialised();
                 LogReady(options.Value.ChargePoints.Count);
                 return;
             }
-            catch (Exception ex) when (ex is MongoException or TimeoutException)
+            catch (Exception ex) when (ex is MongoException or TimeoutException or BrokerUnavailableException)
             {
                 LogRetry(ex.GetType().Name, RetryDelay);
             }
@@ -64,9 +72,9 @@ internal sealed partial class GatewayStartup(
         }
     }
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "Gateway initialised: indexes ensured, {Count} charger registration(s) seeded")]
+    [LoggerMessage(Level = LogLevel.Information, Message = "Gateway initialised: indexes ensured, {Count} charger registration(s) seeded, topology declared")]
     private partial void LogReady(int count);
 
-    [LoggerMessage(Level = LogLevel.Warning, Message = "MongoDB is not reachable yet ({Error}); retrying in {Delay}")]
+    [LoggerMessage(Level = LogLevel.Warning, Message = "A dependency is not reachable yet ({Error}); retrying in {Delay}")]
     private partial void LogRetry(string error, TimeSpan delay);
 }

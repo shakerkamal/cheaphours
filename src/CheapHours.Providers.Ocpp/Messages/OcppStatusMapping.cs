@@ -39,11 +39,14 @@ public static class OcppStatusMapping
     /// <returns><see langword="true"/> for connector 0 or 1.</returns>
     public static bool AppliesToDevice(int connectorId) => connectorId is 0 or 1;
 
-    /// <summary>The time a status applies from: the reported timestamp, unless missing, unreadable or after receipt.</summary>
+    /// <summary>
+    /// The time a reported status or meter value applies from: the reported timestamp, unless missing,
+    /// unreadable or after receipt (a charger's clock is untrusted).
+    /// </summary>
     /// <param name="reportedTimestamp">The payload's <c>timestamp</c>, if any.</param>
     /// <param name="receivedAt">When the gateway received the frame (UTC).</param>
-    /// <returns>The status time, in UTC.</returns>
-    public static DateTimeOffset StatusTime(string? reportedTimestamp, DateTimeOffset receivedAt)
+    /// <returns>The time, in UTC.</returns>
+    public static DateTimeOffset ReportedTime(string? reportedTimestamp, DateTimeOffset receivedAt)
     {
         // A charger's clock is untrusted: a time after receipt would let it block later updates.
         if (reportedTimestamp is not null

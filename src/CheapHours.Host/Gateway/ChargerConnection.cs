@@ -1,5 +1,6 @@
 using System.Net.WebSockets;
 using System.Text;
+using CheapHours.Core.Ids;
 
 namespace CheapHours.Host.Gateway;
 
@@ -32,6 +33,9 @@ internal sealed class ChargerConnection : IDisposable
 
     /// <summary>Gets the id of this connection, stored in the registry.</summary>
     public Guid ConnectionId { get; } = Guid.NewGuid();
+
+    /// <summary>Gets or sets the charger's device id; set once, when the connection is accepted.</summary>
+    public DeviceId DeviceId { get; set; }
 
     /// <summary>Gets the socket.</summary>
     public WebSocket Socket { get; }

@@ -62,6 +62,20 @@ public sealed class MessageTests
     }
 
     [Fact]
+    public void Telemetry_reading_without_power_round_trips_as_unknown()
+    {
+        var original = (TelemetryReceived)Sample(TelemetryReceived.TypeName);
+
+        var json = JsonSerializer.Serialize(original, Options);
+        var read = JsonSerializer.Deserialize<TelemetryReceived>(json, Options)!;
+
+        using var doc = JsonDocument.Parse(json);
+        Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("readings")[2].GetProperty("powerW").ValueKind);
+        Assert.Null(read.Readings[2].PowerW);
+        Assert.Equal(12_467, read.Readings[2].EnergyWh);
+    }
+
+    [Fact]
     public void Send_result_round_trips_with_a_kind_discriminator()
     {
         var result = new GatewayCommandResult(MessageSamples.NewId(), MessageSamples.At, null, MessageSamples.Cmd, new SendResult.Rejected("capability-not-supported"));

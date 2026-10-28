@@ -70,15 +70,30 @@ public sealed class OcppSchemaValidatorTests
     [InlineData(OcppActions.BootNotification)]
     [InlineData(OcppActions.Heartbeat)]
     [InlineData(OcppActions.StatusNotification)]
+    [InlineData(OcppActions.MeterValues)]
+    [InlineData(OcppActions.StartTransaction)]
+    [InlineData(OcppActions.StopTransaction)]
     public void Handled_actions_have_request_schemas(string action)
     {
         Assert.True(Validator.HasRequestSchema(action));
     }
 
     [Fact]
+    public void Valid_meter_values_pass()
+    {
+        Assert.Null(Validator.ValidateRequest(OcppActions.MeterValues, Json("""{"connectorId":1,"transactionId":7,"meterValue":[{"timestamp":"2026-10-23T10:00:15.000Z","sampledValue":[{"value":"12.5","measurand":"Energy.Active.Import.Register","unit":"kWh"}]}]}""")));
+    }
+
+    [Fact]
+    public void Meter_values_without_meter_value_are_refused()
+    {
+        Assert.Equal(OcppErrorCode.OccurenceConstraintViolation, Validator.ValidateRequest(OcppActions.MeterValues, Json("""{"connectorId":1}""")));
+    }
+
+    [Fact]
     public void Unhandled_actions_have_no_schema()
     {
-        Assert.False(Validator.HasRequestSchema("MeterValues"));
+        Assert.False(Validator.HasRequestSchema("Authorize"));
     }
 
     [Fact]

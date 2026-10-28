@@ -21,7 +21,7 @@ internal static class MessageSamples
 
     public static IReadOnlyList<Message> All() =>
     [
-        new TelemetryReceived(NewId(), At, Traceparent, Wallbox, "ocpp", [new DeviceReading("CP-01", At, 7400, 12_345, 42.5m), new DeviceReading("CP-01", At.AddSeconds(30), 7300, 12_406)]),
+        new TelemetryReceived(NewId(), At, Traceparent, Wallbox, "ocpp", [new DeviceReading("CP-01", At, 7400, 12_345, 42.5m), new DeviceReading("CP-01", At.AddSeconds(30), 7300, 12_406), new DeviceReading("CP-01", At.AddSeconds(60), null, 12_467)]),
         new PricesPublished(NewId(), At, null, "DE-LU", new DateOnly(2026, 10, 13), 96),
         CommandRequested(),
         new CommandSent(NewId(), At, Traceparent, Cmd, Wallbox, Key, "ocpp-msg-4471"),

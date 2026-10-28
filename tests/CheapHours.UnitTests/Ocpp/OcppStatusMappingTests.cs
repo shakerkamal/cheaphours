@@ -62,13 +62,13 @@ public sealed class OcppStatusMappingTests
     [Fact]
     public void Reported_timestamp_is_used_when_not_after_receipt()
     {
-        Assert.Equal(Received.AddMinutes(-5), OcppStatusMapping.StatusTime("2026-10-23T09:55:00.000Z", Received));
+        Assert.Equal(Received.AddMinutes(-5), OcppStatusMapping.ReportedTime("2026-10-23T09:55:00.000Z", Received));
     }
 
     [Fact]
     public void Reported_timestamp_with_an_offset_is_converted_to_utc()
     {
-        var at = OcppStatusMapping.StatusTime("2026-10-23T11:55:00+02:00", Received);
+        var at = OcppStatusMapping.ReportedTime("2026-10-23T11:55:00+02:00", Received);
 
         Assert.Equal(Received.AddMinutes(-5), at);
         Assert.Equal(TimeSpan.Zero, at.Offset);
@@ -77,7 +77,7 @@ public sealed class OcppStatusMappingTests
     [Fact]
     public void Future_timestamp_falls_back_to_receipt()
     {
-        Assert.Equal(Received, OcppStatusMapping.StatusTime("2026-10-23T11:00:00.000Z", Received));
+        Assert.Equal(Received, OcppStatusMapping.ReportedTime("2026-10-23T11:00:00.000Z", Received));
     }
 
     [Theory]
@@ -85,6 +85,6 @@ public sealed class OcppStatusMappingTests
     [InlineData("not a time")]
     public void Missing_or_unreadable_timestamp_falls_back_to_receipt(string? reported)
     {
-        Assert.Equal(Received, OcppStatusMapping.StatusTime(reported, Received));
+        Assert.Equal(Received, OcppStatusMapping.ReportedTime(reported, Received));
     }
 }

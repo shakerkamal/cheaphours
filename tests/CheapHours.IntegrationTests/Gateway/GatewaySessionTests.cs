@@ -95,7 +95,8 @@ public sealed class GatewaySessionTests(MongoFixture mongo) : IAsyncLifetime
         AssertCallError(await client.CallAsync("""[2,"abc-2","Heartbeat"]"""), "abc-2", "FormationViolation");
         AssertCallError(await client.CallAsync("""[7,"abc-3","Heartbeat",{}]"""), "abc-3", "FormationViolation");
         AssertCallError(await client.CallAsync("""[2,"f1","FlyToMoon",{}]"""), "f1", "NotImplemented");
-        AssertCallError(await client.CallAsync("""[2,"m1","MeterValues",{"connectorId":1,"meterValue":[]}]"""), "m1", "NotSupported");
+        AssertCallError(await client.CallAsync("""[2,"a1","Authorize",{"idTag":"ANY"}]"""), "a1", "NotSupported");
+        AssertCallError(await client.CallAsync("""[2,"m1","MeterValues",{"connectorId":1,"meterValue":[]}]"""), "m1", "PropertyConstraintViolation");
         AssertCallError(await client.CallAsync("""[2,"b2","BootNotification",{"chargePointVendor":"V"}]"""), "b2", "OccurenceConstraintViolation");
 
         Assert.Equal("h1", (await client.CallAsync(Heartbeat))[1]!.GetValue<string>());

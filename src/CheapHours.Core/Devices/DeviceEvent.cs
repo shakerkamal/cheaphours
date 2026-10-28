@@ -51,11 +51,19 @@ public abstract record DeviceEvent
         /// <summary>Creates the event.</summary>
         /// <param name="externalId">The vendor's id for the device.</param>
         /// <param name="at">When it connected (UTC).</param>
-        public Connected(string externalId, DateTimeOffset at)
-            : base(at) => ExternalId = Guard.NotBlank(externalId);
+        /// <param name="hardware">What the device reported about itself, or <see langword="null"/> when it reported nothing.</param>
+        public Connected(string externalId, DateTimeOffset at, DeviceHardware? hardware = null)
+            : base(at)
+        {
+            ExternalId = Guard.NotBlank(externalId);
+            Hardware = hardware;
+        }
 
         /// <summary>Gets the vendor's id for the device.</summary>
         public string ExternalId { get; }
+
+        /// <summary>Gets what the device reported about itself, or <see langword="null"/> when unknown.</summary>
+        public DeviceHardware? Hardware { get; }
     }
 
     /// <summary>The device disconnected or stopped answering.</summary>

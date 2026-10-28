@@ -9,4 +9,6 @@ They are redistributed **unchanged**; do not edit them. `OcppSchemaFileTests` ch
 They were copied from the [mobilityhouse/ocpp](https://github.com/mobilityhouse/ocpp) library (MIT),
 path `ocpp/v16/schemas/`, commit `aead68e6a2877ba712810525f1ca85ce8db59783`.
 
-Only the schemas for the messages the gateway handles are included. Add others the same way, unchanged.
+Only the schemas for the messages the gateway handles are included (each with its `Response`):
+`BootNotification`, `Heartbeat`, `StatusNotification`, `MeterValues`, `StartTransaction` and
+`StopTransaction`. Add others the same way, unchanged.

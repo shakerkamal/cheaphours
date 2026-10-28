@@ -9,11 +9,11 @@ public sealed record DeviceReading
     /// <summary>Creates a reading.</summary>
     /// <param name="externalId">The vendor's id for the device (for example an OCPP charge point id).</param>
     /// <param name="measurementTime">When the device took the measurement, in UTC.</param>
-    /// <param name="powerW">Instantaneous power in W; negative means the device is feeding power back.</param>
+    /// <param name="powerW">Instantaneous power in W (negative means the device is feeding power back), or <see langword="null"/> when the device did not report it.</param>
     /// <param name="energyWh">Cumulative energy in Wh (a meter value); never negative.</param>
     /// <param name="socPercent">Battery state of charge in percent (0–100), or <see langword="null"/> when unknown.</param>
     /// <exception cref="ArgumentException">A value breaks one of the rules above.</exception>
-    public DeviceReading(string externalId, DateTimeOffset measurementTime, int powerW, long energyWh, decimal? socPercent = null)
+    public DeviceReading(string externalId, DateTimeOffset measurementTime, int? powerW, long energyWh, decimal? socPercent = null)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(energyWh);
         if (socPercent is < 0 or > 100)
@@ -34,8 +34,8 @@ public sealed record DeviceReading
     /// <summary>Gets when the measurement was taken (UTC).</summary>
     public DateTimeOffset MeasurementTime { get; }
 
-    /// <summary>Gets the instantaneous power in W.</summary>
-    public int PowerW { get; }
+    /// <summary>Gets the instantaneous power in W, or <see langword="null"/> when unknown (never reported as zero).</summary>
+    public int? PowerW { get; }
 
     /// <summary>Gets the cumulative energy in Wh.</summary>
     public long EnergyWh { get; }

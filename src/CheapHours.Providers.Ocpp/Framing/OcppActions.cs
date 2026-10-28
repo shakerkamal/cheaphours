@@ -12,15 +12,24 @@ public static class OcppActions
     /// <summary>The <c>StatusNotification</c> action.</summary>
     public const string StatusNotification = nameof(StatusNotification);
 
+    /// <summary>The <c>MeterValues</c> action.</summary>
+    public const string MeterValues = nameof(MeterValues);
+
+    /// <summary>The <c>StartTransaction</c> action.</summary>
+    public const string StartTransaction = nameof(StartTransaction);
+
+    /// <summary>The <c>StopTransaction</c> action.</summary>
+    public const string StopTransaction = nameof(StopTransaction);
+
     /// <summary>Gets every action name OCPP 1.6 defines (case-sensitive, as on the wire).</summary>
     public static IReadOnlySet<string> All { get; } = new HashSet<string>(StringComparer.Ordinal)
     {
         "Authorize", BootNotification, "CancelReservation", "ChangeAvailability", "ChangeConfiguration",
         "ClearCache", "ClearChargingProfile", "DataTransfer", "DiagnosticsStatusNotification",
         "FirmwareStatusNotification", "GetCompositeSchedule", "GetConfiguration", "GetDiagnostics",
-        "GetLocalListVersion", Heartbeat, "MeterValues", "RemoteStartTransaction", "RemoteStopTransaction",
-        "ReserveNow", "Reset", "SendLocalList", "SetChargingProfile", "StartTransaction", StatusNotification,
-        "StopTransaction", "TriggerMessage", "UnlockConnector", "UpdateFirmware",
+        "GetLocalListVersion", Heartbeat, MeterValues, "RemoteStartTransaction", "RemoteStopTransaction",
+        "ReserveNow", "Reset", "SendLocalList", "SetChargingProfile", StartTransaction, StatusNotification,
+        StopTransaction, "TriggerMessage", "UnlockConnector", "UpdateFirmware",
         "CertificateSigned", "DeleteCertificate", "ExtendedTriggerMessage", "GetInstalledCertificateIds",
         "GetLog", "InstallCertificate", "LogStatusNotification", "SecurityEventNotification",
         "SignCertificate", "SignedFirmwareStatusNotification", "SignedUpdateFirmware",

@@ -2,6 +2,7 @@ using System.Net.WebSockets;
 using System.Text;
 using CheapHours.Core.Devices;
 using CheapHours.Core.Ids;
+using CheapHours.Messaging;
 using CheapHours.Persistence.ChargePoints;
 using CheapHours.Persistence.Connections;
 using CheapHours.Persistence.Devices;
@@ -22,7 +23,8 @@ internal sealed partial class ChargerSession(
     ConnectionTable connections,
     IDeviceStateStore devices,
     IConnectionRegistry registry,
-    OcppCallHandler handler,
+    DeviceEventRecorder recorder,
+    OcppProvider provider,
     TimeProvider time,
     IOptions<GatewayOptions> options,
     ILogger<ChargerSession> logger)
@@ -35,8 +37,6 @@ internal sealed partial class ChargerSession(
 
     /// <summary>What a charger device can do (OCPP 1.6 wallbox).</summary>
     public const Capabilities ChargerCapabilities = Capabilities.ReadTelemetry | Capabilities.StartStop | Capabilities.SetPowerLimit;
-
-    private static readonly UTF8Encoding StrictUtf8 = new(encoderShouldEmitUTF8Identifier: false, throwOnInvalidBytes: true);
 
     private readonly string _replicaId = options.Value.ReplicaId;
 
@@ -92,7 +92,7 @@ internal sealed partial class ChargerSession(
                 ChargerCapabilities,
                 new DeviceAttributes(maxPowerW: registration.MaxPowerW));
 
-            await devices.EnsureAsync(device, now, cancellationToken).ConfigureAwait(false);
+            connection.DeviceId = await devices.EnsureAsync(device, now, cancellationToken).ConfigureAwait(false);
             await registry.RecordAsync(new ConnectionEntry(connection.ChargePointId, _replicaId, connection.ConnectionId, now), cancellationToken).ConfigureAwait(false);
             return true;
         }
@@ -188,17 +188,18 @@ internal sealed partial class ChargerSession(
             LogSeenFailed(connection.ChargePointId, errorName);
         }
 
-        var frame = Decode(bytes);
-        var outcome = handler.Handle(frame, receivedAt);
+        var frame = OcppProvider.Decode(bytes);
+        var outcome = provider.Handle(frame, connection.ChargePointId, receivedAt);
         var reply = outcome.Reply;
 
-        if (outcome.Effect is { } effect && frame is OcppCall call)
+        // A refused call carries nothing to record (its malformed-input event is the refusal already logged below).
+        if (outcome.Events.Count > 0 && outcome.Error is null && frame is OcppCall call)
         {
             try
             {
-                await ApplyAsync(connection.ChargePointId, effect, cancellationToken).ConfigureAwait(false);
+                await recorder.RecordAsync(OcppProvider.Id, connection.ChargePointId, connection.DeviceId, outcome.Events, receivedAt, cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception ex) when (ex is MongoException or TimeoutException)
+            catch (Exception ex) when (ex is MongoException or TimeoutException or BrokerUnavailableException)
             {
                 LogEffectFailed(call.Action, connection.ChargePointId, ex.GetType().Name);
                 reply = OcppCallHandler.InternalErrorReply(call.UniqueId);
@@ -217,28 +218,9 @@ internal sealed partial class ChargerSession(
         }
     }
 
-    private static OcppFrame Decode(byte[] bytes)
-    {
-        try
-        {
-            return OcppFrameCodec.Decode(StrictUtf8.GetString(bytes));
-        }
-        catch (DecoderFallbackException)
-        {
-            return new OcppFrameError(null, "not valid UTF-8");
-        }
-    }
-
     // Action names come from the charger: only log names OCPP defines, never arbitrary text.
     private static string ActionName(OcppFrame frame) =>
         frame is OcppCall call && OcppActions.IsKnown(call.Action) ? call.Action : "(other)";
-
-    private Task ApplyAsync(string chargePointId, OcppEffect effect, CancellationToken cancellationToken) => effect switch
-    {
-        BootReported boot => devices.RecordHardwareAsync(OcppProvider.Id, chargePointId, new DeviceHardware(boot.Manufacturer, boot.Model, boot.FirmwareVersion), cancellationToken),
-        StatusReported status => devices.RecordStatusAsync(OcppProvider.Id, chargePointId, status.Status, status.At, cancellationToken),
-        _ => Task.CompletedTask,
-    };
 
     private static async Task AnswerCloseAsync(ChargerConnection connection)
     {

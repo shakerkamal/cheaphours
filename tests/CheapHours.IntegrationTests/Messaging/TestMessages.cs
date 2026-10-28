@@ -19,7 +19,7 @@ internal static class TestMessages
             traceparent,
             device,
             "ocpp",
-            Enumerable.Range(0, readings).Select(i => new DeviceReading("CP001", T0.AddSeconds(startSeconds + (15 * i)), 0, firstEnergyWh + (10 * i))).ToArray());
+            Enumerable.Range(0, readings).Select(i => new DeviceReading("CP001", T0.AddSeconds(startSeconds + (15 * i)), null, firstEnergyWh + (10 * i))).ToArray());
 
     public static DeviceId NewDevice() => DeviceId.Parse($"dev_{Guid.NewGuid():N}");
 }

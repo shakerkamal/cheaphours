@@ -4,33 +4,32 @@ using CheapHours.Providers.Ocpp.Framing;
 namespace CheapHours.Providers.Ocpp.Messages;
 
 /// <summary>
-/// What handling one frame produced: the reply to send (if any) and the effect to store before sending it.
-/// The gateway applies <see cref="Effect"/> first and sends <see cref="Reply"/> only if that succeeded.
+/// What handling one frame produced: the reply to send (if any) and the normalised device events to record
+/// before sending it. The gateway records <see cref="Events"/> first and sends <see cref="Reply"/> only if
+/// that succeeded.
 /// </summary>
-/// <param name="Reply">The frame to send back, or <see langword="null"/> when nothing is sent (results and errors from the charger).</param>
-/// <param name="Effect">The device change to store, if any.</param>
-/// <param name="Error">The CallError code when <paramref name="Reply"/> is a CallError; for logs.</param>
-public sealed record OcppOutcome(string? Reply, OcppEffect? Effect = null, OcppErrorCode? Error = null)
+public sealed record OcppOutcome
 {
-    /// <summary>Gets the outcome that sends nothing and changes nothing.</summary>
-    public static OcppOutcome None { get; } = new(Reply: null);
-}
-
-/// <summary>A device change a frame asks for. The set is closed.</summary>
-public abstract record OcppEffect
-{
-    private protected OcppEffect()
+    /// <summary>Creates the outcome.</summary>
+    /// <param name="reply">The frame to send back, or <see langword="null"/> when nothing is sent (results and errors from the charger).</param>
+    /// <param name="events">The device events the frame reported, in frame order; empty when none.</param>
+    /// <param name="error">The CallError code when <paramref name="reply"/> is a CallError; for logs.</param>
+    public OcppOutcome(string? reply, IReadOnlyList<DeviceEvent>? events = null, OcppErrorCode? error = null)
     {
+        Reply = reply;
+        Events = events ?? [];
+        Error = error;
     }
+
+    /// <summary>Gets the outcome that sends nothing and reports nothing.</summary>
+    public static OcppOutcome None { get; } = new(reply: null);
+
+    /// <summary>Gets the frame to send back, or <see langword="null"/> when nothing is sent.</summary>
+    public string? Reply { get; }
+
+    /// <summary>Gets the device events the frame reported, in frame order.</summary>
+    public IReadOnlyList<DeviceEvent> Events { get; }
+
+    /// <summary>Gets the CallError code when <see cref="Reply"/> is a CallError.</summary>
+    public OcppErrorCode? Error { get; }
 }
-
-/// <summary>A <c>BootNotification</c> reported the charger's hardware.</summary>
-/// <param name="Manufacturer">The reported <c>chargePointVendor</c>.</param>
-/// <param name="Model">The reported <c>chargePointModel</c>.</param>
-/// <param name="FirmwareVersion">The reported <c>firmwareVersion</c>, if any.</param>
-public sealed record BootReported(string Manufacturer, string Model, string? FirmwareVersion) : OcppEffect;
-
-/// <summary>A <c>StatusNotification</c> for the charger set its status.</summary>
-/// <param name="Status">The normalised status.</param>
-/// <param name="At">When the status applies from (UTC).</param>
-public sealed record StatusReported(DeviceStatus Status, DateTimeOffset At) : OcppEffect;

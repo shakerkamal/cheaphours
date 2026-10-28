@@ -73,6 +73,53 @@ public sealed class DeviceTests
     }
 
     [Fact]
+    public void Reading_without_power_reports_unknown_not_zero()
+    {
+        var reading = new DeviceReading("CP-01", _utcNoon, powerW: null, energyWh: 12_500);
+
+        Assert.Null(reading.PowerW);
+        Assert.Equal(12_500, reading.EnergyWh);
+    }
+
+    [Fact]
+    public void Hardware_without_firmware_reports_it_unknown()
+    {
+        var hardware = new DeviceHardware("Solidstudio", "VirtualChargePoint");
+
+        Assert.Equal("Solidstudio", hardware.Manufacturer);
+        Assert.Equal("VirtualChargePoint", hardware.Model);
+        Assert.Null(hardware.FirmwareVersion);
+    }
+
+    [Theory]
+    [InlineData(" ", "VirtualChargePoint")]
+    [InlineData("Solidstudio", " ")]
+    [InlineData("", "VirtualChargePoint")]
+    public void Hardware_with_a_blank_manufacturer_or_model_is_refused(string manufacturer, string model)
+    {
+        Assert.Throws<ArgumentException>(() => new DeviceHardware(manufacturer, model));
+    }
+
+    [Fact]
+    public void Connected_event_carries_hardware()
+    {
+        var hardware = new DeviceHardware("Solidstudio", "VirtualChargePoint", "1.0.0");
+
+        var connected = new DeviceEvent.Connected("CP-01", _utcNoon, hardware);
+
+        Assert.Equal(hardware, connected.Hardware);
+        Assert.Equal("1.0.0", connected.Hardware!.FirmwareVersion);
+    }
+
+    [Fact]
+    public void Connected_event_without_hardware_reports_it_unknown()
+    {
+        var connected = new DeviceEvent.Connected("CP-01", _utcNoon);
+
+        Assert.Null(connected.Hardware);
+    }
+
+    [Fact]
     public void Reading_without_external_id_is_refused()
     {
         Assert.Throws<ArgumentException>(() => new DeviceReading(" ", _utcNoon, 0, 0));
