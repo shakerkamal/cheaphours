@@ -66,19 +66,48 @@ The simulator connects to the gateway running on your machine.
    The gateway only ever sees the hash. The simulator logs its own settings when it connects,
    password included, so don't share its container logs.
 
-3. **Start the stack** and wait until all three services are healthy:
+3. **Give RabbitMQ an account.** Set `RABBITMQ_PASSWORD` in `.env` (generate it like the charger
+   password) and give the gateway and worker the matching connection string:
+
+   ```sh
+   dotnet user-secrets --project src/CheapHours.Host set "ConnectionStrings:RabbitMq" "amqp://cheaphours:<password>@localhost:5672/"
+   ```
+
+   RabbitMQ only reads the account on its first start, so after changing it run `docker compose up -d
+   --force-recreate rabbitmq`. The topology (exchange, queues, retries, dead letters) is declared by
+   the gateway and worker when they start.
+
+4. **Start the stack** and wait until all three services are healthy:
 
    ```sh
    docker compose up -d --wait
    ```
 
-4. **Run the gateway.** The simulator connects within a few seconds, boots and reports `Available`:
+5. **Run the gateway and the worker**, each in its own terminal. The simulator connects within a few
+   seconds, boots and reports `Available`:
 
    ```sh
    dotnet run --project src/CheapHours.Host -- --role gateway --urls http://localhost:5081
+   dotnet run --project src/CheapHours.Host -- --role worker
    ```
 
-   Health: `http://localhost:5081/health/live` and `http://localhost:5081/health/ready`.
+   Health: `http://localhost:5081/health/live` and `http://localhost:5081/health/ready` (MongoDB and
+   RabbitMQ reachable).
+
+6. **Charge.** Start a charging session on the simulator; it then sends meter values every 15 seconds,
+   which the gateway publishes and the worker stores:
+
+   ```sh
+   docker compose exec ocpp-simulator npx tsx admin/v16/Transaction/startTransaction.ts
+   docker compose exec ocpp-simulator npx tsx admin/v16/StatusNotification/charging.ts
+   docker compose exec mongo mongosh cheaphours --quiet --eval 'db.telemetry.find().sort({ts: -1}).limit(3)'
+   docker compose exec mongo mongosh cheaphours --quiet --eval 'db.devices.findOne({}, {lastReading: 1})'
+   docker compose exec -e METER_STOP=30000 ocpp-simulator npx tsx admin/v16/Transaction/stopTransaction.ts
+   ```
+
+   The simulator does not report `Charging` by itself when a session starts, so the second command
+   sends that status. The stop command reports the final meter value in Wh (`METER_STOP`, 2000 when
+   not set).
 
 `docker compose down -v` stops everything and deletes the local data.
 

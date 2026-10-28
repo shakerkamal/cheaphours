@@ -7,7 +7,7 @@ the old one.
 | ADR | Decision | Status |
 |---|---|---|
 | [001](001-modular-monolith.md) | Modular monolith in three process roles | Accepted |
-| 002 | MongoDB time-series collection for telemetry | Planned |
+| [002](002-mongodb-time-series-telemetry.md) | MongoDB time-series collection for telemetry | Accepted |
 | [003](003-rabbitmq.md) | RabbitMQ with quorum queues and delay-queue retries | Accepted |
 | 004 | Own small outbox and inbox on RabbitMQ.Client | Planned |
 | 005 | Greedy cheapest-slot planner | Planned |

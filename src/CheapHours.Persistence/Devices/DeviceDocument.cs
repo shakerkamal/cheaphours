@@ -38,10 +38,29 @@ internal sealed class DeviceDocument
     [BsonIgnoreIfNull]
     public DateTime? LastSeenAt { get; set; }
 
+    /// <summary>Gets or sets the latest reading. The worker writes it with a pipeline update (see <c>LastReadingUpdate</c>).</summary>
+    [BsonIgnoreIfNull]
+    public LastReadingDocument? LastReading { get; set; }
+
     [BsonDateTimeOptions(Kind = DateTimeKind.Utc)]
     public DateTime CreatedAt { get; set; }
 
     public int SchemaVersion { get; set; } = 1;
+
+    /// <summary>The latest reading; power may be derived (<see cref="PowerDerived"/>), and unknown values are null.</summary>
+    internal sealed class LastReadingDocument
+    {
+        [BsonDateTimeOptions(Kind = DateTimeKind.Utc)]
+        public DateTime Ts { get; set; }
+
+        public long EnergyWh { get; set; }
+
+        public int? PowerW { get; set; }
+
+        public double? SocPercent { get; set; }
+
+        public bool? PowerDerived { get; set; }
+    }
 
     /// <summary>Typed attributes (D2).</summary>
     internal sealed class AttributesDocument
