@@ -1,9 +1,10 @@
 using CheapHours.Core.Ids;
+using CheapHours.Host.Api.Auth;
 using Microsoft.Extensions.Options;
 
-namespace CheapHours.Host.Api.Auth;
+namespace CheapHours.ApiTests;
 
-/// <summary>API keys read from configuration (section <c>ApiKeys</c>), holding hashes only.</summary>
+/// <summary>A test double for <see cref="IApiKeyStore"/>: the configured keys (section <c>ApiKeys</c>) held in memory, so API tests need no database.</summary>
 internal sealed class InMemoryApiKeyStore : IApiKeyStore
 {
     private readonly Dictionary<string, ApiKeyRecord> _byHash;

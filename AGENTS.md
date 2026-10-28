@@ -22,7 +22,8 @@ page is binding.
 
 ## Status
 
-**Next:** propose the telemetry pipeline.
+**Next:** the user reviews the gate of `add-device-read-api` (all tasks implemented). After approval:
+`/opsx:archive`, then propose the next change (adapter kit and cloud providers).
 
 ### Done
 
@@ -33,6 +34,11 @@ page is binding.
 - **Domain model:** prefixed typed ids (`dev_`, `goal_`, `plan_`, `cmd_`, …), `Capabilities`,
   `DeviceReading`, `Device` with typed attributes, `DeviceCommand`, closed `SendResult` and
   `DeviceEvent`, `CommandState`, `Goal`, `Plan` and `PlanSlot` on the 15-minute grid.
+  - One device model: `Device` carries its last known `DeviceState` (status, last seen, report interval,
+    hardware, last reading) and `StatusAsOf(now)` shows a device silent for more than three report
+    intervals as `Offline`.
+  - `SlotGrid` (floor, ceiling, alignment) and `TelemetryBucket` (energy per 15-minute slot, average
+    power, last SoC).
 - **Adapter kit interfaces:** `IDeviceProvider`, `IPollingProvider`, `IInboundTranslator`,
   `ICommandSender`, `IWebhookVerifier`; `AddProvider<T>` registration and a startup validator.
 - **Message contracts:** `Message` envelope (id, time, type, schema version, `traceparent`), seven
@@ -45,14 +51,26 @@ page is binding.
   decision (confirm, resend or fail) against the device's last observation. Property tests (FsCheck)
   cover terminal states and key uniqueness.
 - **Local environment:** `docker compose` with MongoDB 8.0 (single-node replica set, self-initialising),
-  RabbitMQ 4.2 and the Solidstudio OCPP 1.6 simulator built from a pinned commit; local secrets in a
-  git-ignored `.env`, the gateway's copy as a hash in `dotnet user-secrets`.
+  RabbitMQ 4.2 and the Solidstudio OCPP 1.6 simulator built from a pinned commit.
+  - Local secrets live in a git-ignored `.env` (the charger password and the RabbitMQ account).
+  - The gateway's password hash and the broker connection string live in `dotnet user-secrets`.
+  - The simulator sends meter values every 15 s during a charging session started with its admin
+    scripts (README "Run locally").
 - **OCPP gateway (gateway role):**
   - `/ocpp/{chargePointId}` WebSocket: basic auth against `chargePoints` (SHA-256, constant-time) and the
     `ocpp1.6` subprotocol, both checked before the upgrade; registrations seeded from configuration.
   - OCPP-J codec and validation against the official OCPP 1.6 schemas (embedded unchanged,
     CC BY-ND 4.0, hash-checked); malformed or invalid frames get a `CallError`, never a dropped socket.
-  - `BootNotification`, `Heartbeat`, `StatusNotification`; other actions `NotSupported`/`NotImplemented`.
+  - `BootNotification`, `Heartbeat`, `StatusNotification`, `MeterValues`, `StartTransaction` (any
+    `idTag`; the transaction id is the seconds since 2026-01-01Z) and `StopTransaction`; other actions
+    get `NotSupported`/`NotImplemented`.
+  - One translation path: `OcppProvider.Handle` gives the reply plus normalised `DeviceEvent`s, and
+    `Translate` gives the same events. A vendor-neutral `DeviceEventRecorder` stores hardware and status,
+    and publishes all of a frame's readings as one confirmed `TelemetryReceived` before the charger is
+    answered. A broker failure gives `InternalError`.
+  - Meter values: the energy import register (the default measurand), active import power and SoC;
+    phase-less `Raw` samples only; converted to Wh, W and %; untrusted future timestamps are replaced by
+    the receipt time.
   - Each registration carries the charger's `maxPowerW` (D2).
   - A `devices` document per charger, created when its connection is accepted (a reconnecting charger
     does not boot again); status and `lastSeenAt` only move forward (charger reports compare
@@ -61,33 +79,69 @@ page is binding.
     replaces an older one (1008).
   - Offline after three missed heartbeat intervals (`DevicePresence` in Core, a monitor on `TimeProvider`).
   - Graceful shutdown (1001, registry sweep, devices not flapped to offline); `/health/live`,
-    `/health/ready`.
-  - MongoDB setup and seeding retry in the background, so a slow database delays readiness instead of
+    `/health/ready` (MongoDB and RabbitMQ reachable, not draining).
+  - MongoDB and broker setup retry in the background, so a slow dependency delays readiness instead of
     crashing the gateway.
-- **Persistence (first MongoDB code):** `chargePoints`, `devices`, `connections` stores, index creation,
-  camelCase and enum-name conventions, `schemaVersion` on every document.
-- **ADRs:** 001 (modular monolith), 008 (gateway command routing).
-- **Tests:** 570 green (unit, property, architecture, API contract, and integration tests against a
-  real MongoDB in Testcontainers and a real gateway on Kestrel). `dotnet test` needs Docker running.
+- **Messaging (RabbitMQ, ADR-003):**
+  - The topology is declared from code: topic exchange `cheaphours.events`; per consumer a quorum queue,
+    three delay queues (5 s, 30 s, 2 min) and a dead-letter queue. A conflicting queue stops startup.
+    Every name carries `Messaging:QueuePrefix`.
+  - The confirmed, persistent, `mandatory` publisher has a 5 s timeout, and the envelope travels in the
+    AMQP properties.
+  - `BatchingConsumer<T>`: batches of 200 or 250 ms. A failing batch is split. Retries go through the
+    delay queues, then to the dead-letter queue with attempts and a category. Unreadable bodies and newer
+    schema versions are parked at once. A database outage keeps the batch and backs off without
+    spending retries. Stale delivery tags are never acknowledged after a reconnect. `x-delivery-limit` 20
+    parks a message that crashes its consumer.
+  - The connection recovers by itself, and only `host:port` and exception type names are logged.
+- **Telemetry storage (worker role, ADR-002):**
+  - `telemetry` is a time-series collection (`ts`, `meta`, 30-day TTL) and `inbox` has a 7-day TTL; both
+    are created at startup.
+  - `TelemetryBatchWriter` stores readings exactly once without transactions:
+    - the inbox drops handled ids;
+    - a repeat first deletes its own partial write;
+    - the inbox entry is written last.
+  - `devices.lastReading` only moves forward, and power is derived from the energy change when it is
+    not reported (`powerDerived`).
+  - The worker role runs startup (indexes and topology) and then the telemetry consumer.
+- **Device read API (api role, D3):**
+  - `GET /v1/devices` (oldest first, cursor paging), `GET /v1/devices/{id}` and
+    `GET /v1/devices/{id}/telemetry` (15-minute buckets aggregated inside MongoDB: energy increments
+    between consecutive readings, counted only across gaps of at most 15 minutes and never across a meter
+    reset; average power = energy over the slot; last reported SoC; empty slots left out).
+  - Owner scoping is part of every query; another owner's device gets the same 404 as a missing one.
+  - Presence on read: the gateway stores each charger's heartbeat interval as its report interval, and
+    a device silent for more than three intervals is shown `Offline` even when no replica marked it.
+  - Query validation before any lookup (limit 1–200, UTC range of at most 31 days, `resolution` only
+    `15m`, opaque base64url cursors), with `errors` keyed by parameter.
+  - API keys live in `apiKeys` (by SHA-256 hash); configured keys are validated at startup and seeded in
+    the background; a malformed stored key gets 401 and is logged by name, never by hash.
+  - The API role retries MongoDB setup in the background and serves `/health/live` and `/health/ready`
+    (not in the OpenAPI document).
+  - Contract corrections: `ReadingDto.powerW` is nullable; timestamps are typed `string`/`date-time` and
+    nullable ones (`lastSeenAt`, `expiresAt`) allow null.
+- **Persistence:** `chargePoints`, `devices`, `connections`, `telemetry`, `inbox` and `apiKeys`; the
+  owner-scoped device reader and the telemetry bucket reader; index creation;
+  camelCase and enum-name conventions; `schemaVersion` on every document.
+- **ADRs:** 001 (modular monolith), 002 (time-series telemetry), 003 (RabbitMQ), 008 (gateway command
+  routing).
+- **Tests:** 850 green: unit, property, architecture, API contract, and integration tests against a
+  real MongoDB and RabbitMQ in Testcontainers, with a real gateway on Kestrel, a real worker host and
+  the API role on its own database (one model-based FsCheck test checks the bucket pipeline).
+  The integration tests include broker and database fault tests. `dotnet test` needs Docker running.
 
 ### Left to build
 
-- **Telemetry pipeline:** MongoDB indexes and time-series `telemetry` with TTL, `MeterValues` to readings,
-  RabbitMQ topology with DLQ and retries, inbox and batched consumer, device and telemetry endpoints,
-  API keys stored in MongoDB, the gateway recording the `DeviceEvent`s from `OcppProvider.Translate`
-  instead of OCPP-specific effects (today it calls `OcppCallHandler` directly, so the translator only
-  runs in tests), one device model (fold the persistence `DeviceState` into Core's `Device`
-  once the devices endpoint shows what the read side needs).
 - **Cloud providers:** kit resilience (per-provider `HttpClient` pipeline, token store, rate limiting with
   `Retry-After`), shared provider contract suite, car-cloud simulator and polling provider, heat-pump
   simulator and webhook provider, polling scheduler with a leader lock, bulkhead test, OCPP on the suite.
 - **Prices and planner:** Energy-Charts price import with retries and fallback, greedy planner with
   property tests, re-planning on new prices, goal change or SoC drift, goal/plan/prices/savings
-  endpoints, ADR-002 and ADR-005.
+  endpoints, ADR-005.
 - **Command dispatch and reliability:** transactional outbox and relay, dispatcher (OCPP via the gateway
   queue), confirmation timeout → reconcile → resend wired to the lifecycle, plan-confirm and command
   endpoints with idempotency middleware, fault tests for every reliability-table row, OpenTelemetry
-  traces and metrics, ADR-003, ADR-004 and ADR-006.
+  traces and metrics, ADR-004 and ADR-006.
 - **Delivery:** small dashboard on the public API, GitHub Actions pipeline, Helm chart, k6 load test,
   README with architecture diagram and demo.
 - **CheapHours Assistant (separate repo):** MCP server and agent host over the public API only.
@@ -95,8 +149,6 @@ page is binding.
 ### Open items
 
 - Waiting for the user's review: the database ERD.
-- The read side (devices endpoint) should apply `DevicePresence` to `lastSeenAt`, so a charger whose
-  gateway replica crashed is not shown as online.
 - D8: rename "WattBridge" to CheapHours in Notion (user).
 - D9: needs the week-by-week roadmap from the user.
 
@@ -106,7 +158,7 @@ page is binding.
 |---|---|---|
 | D1 | Worker → charger via per-replica gateway queue | Accepted: [ADR-008](docs/adr/008-gateway-command-routing.md); routing key in `GatewayCommand`; connection registry built |
 | D2 | Goal has vehicle + charger; typed device attributes | Accepted: `Goal`, `DeviceAttributes` |
-| D3 | `apiKeys` + `ownerId`; one seeded demo user | Accepted: shape and in-memory key store built; MongoDB storage comes with the telemetry pipeline |
+| D3 | `apiKeys` + `ownerId`; one seeded demo user | Accepted: `apiKeys` in MongoDB seeded from configuration; every device read is owner-scoped |
 | D4 | 15-minute slots everywhere | Accepted: `PlanSlot` |
 | D5 | Per-slot Start/Stop/SetPowerLimit in core | Accepted: `CommandType` |
 | D6 | `IWebhookVerifier` per provider | Accepted: interface built; first implementation with the heat-pump provider |
@@ -126,11 +178,13 @@ Pinned in `Directory.Packages.props`. `Microsoft.*` 10.0.x packages match the in
 | Microsoft.Extensions.Options.ConfigurationExtensions | 10.0.12 | Providers.Kit, Persistence |
 | MongoDB.Driver | 3.12.0 | Persistence (and Host through it) |
 | NJsonSchema | 11.6.1 | Providers.Ocpp (OCPP 1.6 schemas are draft-04; brings in Newtonsoft.Json) |
+| RabbitMQ.Client | 7.2.2 | Messaging (async-only API; publisher confirms with tracking) |
 | Scalar.AspNetCore | 2.18.0 | Host (Development only) |
-| FsCheck.Xunit.v3 | 3.5.0 | UnitTests (property tests) |
+| FsCheck.Xunit.v3 | 3.5.0 | UnitTests (property tests), IntegrationTests (model-based telemetry bucket test) |
 | Microsoft.AspNetCore.Mvc.Testing | 10.0.12 | ApiTests |
 | Microsoft.Extensions.TimeProvider.Testing | 10.11.0 | UnitTests |
 | Testcontainers.MongoDb | 4.16.0 | IntegrationTests |
+| Testcontainers.RabbitMq | 4.16.0 | IntegrationTests |
 | TngTech.ArchUnitNET.xUnitV3 | 0.13.4 | ArchitectureTests |
 | xunit.v3 | 4.0.2 | all tests |
 
@@ -159,8 +213,10 @@ dotnet test --filter-method "*Role*"           # by method name; VSTest-style --
 dotnet run --project src/CheapHours.Host -- --role api      # or gateway | worker (Development via launchSettings)
 docker compose up -d --wait                    # local MongoDB, RabbitMQ, OCPP simulator (needs .env, see README)
 dotnet run --project src/CheapHours.Host -- --role gateway --urls http://localhost:5081   # simulator connects here
+dotnet run --project src/CheapHours.Host -- --role worker      # stores telemetry from RabbitMQ
+dotnet run --project src/CheapHours.Host -- --role api --urls http://localhost:5080   # device API (demo key: README "Run locally")
 UPDATE_SNAPSHOT=1 dotnet test --project tests/CheapHours.ApiTests   # deliberately refresh docs/api/openapi.v1.json
-openspec validate --strict                     # check all changes and specs
+openspec validate --all --strict               # check all changes and specs
 openspec status --change <name>                # artifact progress
 ```
 
@@ -170,8 +226,8 @@ openspec status --change <name>                # artifact progress
 src/CheapHours.Core                  domain types; references nothing, no I/O
 src/CheapHours.Messaging.Contracts   message records + shared JSON options; references Core only
 src/CheapHours.Planning              planner (not built yet)
-src/CheapHours.Persistence           MongoDB stores: chargePoints, devices, connections; index creation
-src/CheapHours.Messaging             outbox, inbox, RabbitMQ (not built yet)
+src/CheapHours.Persistence           MongoDB stores: chargePoints, devices, connections, telemetry, inbox, apiKeys; readers; index creation
+src/CheapHours.Messaging             RabbitMQ connection, topology, confirmed publisher, batching consumer (outbox later)
 src/CheapHours.Providers.Kit         adapter interfaces, registration, resilience
 src/CheapHours.Providers.Kit.Testing shared provider contract suite (not built yet)
 src/CheapHours.Providers.{Ocpp,CarCloud,HeatPumpCloud}

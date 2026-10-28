@@ -10,14 +10,15 @@ public sealed class DeviceStateStore(IMongoDatabase database) : IDeviceStateStor
 {
     private static readonly FilterDefinitionBuilder<DeviceDocument> Filter = Builders<DeviceDocument>.Filter;
     private static readonly UpdateDefinitionBuilder<DeviceDocument> Update = Builders<DeviceDocument>.Update;
-    private static readonly Capabilities[] KnownCapabilities = Enum.GetValues<Capabilities>().Where(c => c != Capabilities.None).ToArray();
 
     private readonly IMongoCollection<DeviceDocument> _collection = Collection(database);
 
     /// <inheritdoc/>
-    public async Task<DeviceId> EnsureAsync(Device device, DateTimeOffset at, CancellationToken cancellationToken)
+    public async Task<DeviceId> EnsureAsync(Device device, TimeSpan reportInterval, DateTimeOffset at, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(device);
+        ArgumentOutOfRangeException.ThrowIfLessThan(reportInterval, TimeSpan.FromSeconds(1));
+        var intervalSeconds = checked((int)reportInterval.TotalSeconds);
         var when = UtcTime.ToBson(at);
         var filter = Key(device.ProviderId, device.ExternalId);
 
@@ -25,7 +26,7 @@ public sealed class DeviceStateStore(IMongoDatabase database) : IDeviceStateStor
             .SetOnInsert(d => d.Id, device.Id.Value)
             .SetOnInsert(d => d.OwnerId, device.OwnerId.Value)
             .SetOnInsert(d => d.Type, device.Type)
-            .SetOnInsert(d => d.Capabilities, Names(device.Capabilities))
+            .SetOnInsert(d => d.Capabilities, DeviceDocumentMapper.Names(device.Capabilities))
             .SetOnInsert(d => d.Attributes, new DeviceDocument.AttributesDocument { MaxPowerW = device.Attributes.MaxPowerW, BatteryCapacityWh = device.Attributes.BatteryCapacityWh })
             .SetOnInsert(d => d.Status, DeviceStatus.Unknown)
             .SetOnInsert(d => d.StatusAt, when)
@@ -40,6 +41,9 @@ public sealed class DeviceStateStore(IMongoDatabase database) : IDeviceStateStor
         {
             // A concurrent upsert inserted it first; the unique index kept it to one document.
         }
+
+        // Set on every connection, not only on insert: a changed interval applies from the next connection.
+        await _collection.UpdateOneAsync(filter, Update.Set(d => d.ReportIntervalSeconds, intervalSeconds), cancellationToken: cancellationToken).ConfigureAwait(false);
 
         // A charger that connects is no longer offline, even before it reports a status.
         await _collection.UpdateOneAsync(
@@ -95,36 +99,14 @@ public sealed class DeviceStateStore(IMongoDatabase database) : IDeviceStateStor
         _collection.UpdateOneAsync(Key(providerId, externalId), Update.Max(d => d.LastSeenAt, UtcTime.ToBson(at)), cancellationToken: cancellationToken);
 
     /// <inheritdoc/>
-    public async Task<DeviceState?> FindAsync(string providerId, string externalId, CancellationToken cancellationToken)
+    public async Task<Device?> FindAsync(string providerId, string externalId, CancellationToken cancellationToken)
     {
         var d = await _collection.Find(Key(providerId, externalId)).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
-
-        return d is null
-            ? null
-            : new DeviceState(
-                DeviceId.Parse(d.Id),
-                OwnerId.Parse(d.OwnerId),
-                d.ProviderId,
-                d.ExternalId,
-                d.Type,
-                Flags(d.Capabilities),
-                d.Attributes.MaxPowerW,
-                d.Hardware is { } h ? new DeviceHardware(h.Manufacturer, h.Model, h.FirmwareVersion) : null,
-                d.Status,
-                UtcTime.FromBson(d.StatusAt),
-                UtcTime.FromBson(d.LastSeenAt),
-                UtcTime.FromBson(d.CreatedAt));
+        return d is null ? null : DeviceDocumentMapper.ToDevice(d);
     }
 
     private static FilterDefinition<DeviceDocument> Key(string providerId, string externalId) =>
         Filter.Eq(d => d.ProviderId, providerId) & Filter.Eq(d => d.ExternalId, externalId);
-
-    private static List<string> Names(Capabilities capabilities) =>
-        KnownCapabilities.Where(c => capabilities.HasFlag(c)).Select(c => c.ToString()).ToList();
-
-    // Names no longer defined are ignored rather than failing the read.
-    private static Capabilities Flags(IEnumerable<string> names) =>
-        names.Aggregate(Capabilities.None, (all, name) => Enum.TryParse<Capabilities>(name, out var c) ? all | c : all);
 
     private static IMongoCollection<DeviceDocument> Collection(IMongoDatabase database)
     {

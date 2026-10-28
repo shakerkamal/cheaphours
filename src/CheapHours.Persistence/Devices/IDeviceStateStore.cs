@@ -13,13 +13,15 @@ public interface IDeviceStateStore
     /// Creates the device with status <see cref="DeviceStatus.Unknown"/> if no device exists for its provider
     /// and external id; otherwise keeps the existing one. Either way, a device that is
     /// <see cref="DeviceStatus.Offline"/> becomes <see cref="DeviceStatus.Unknown"/> at <paramref name="at"/>.
-    /// Safe under concurrent calls: at most one device is created.
+    /// Safe under concurrent calls: at most one device is created. The device's report interval is set to
+    /// <paramref name="reportInterval"/> on every call, so readers can tell when it has gone silent.
     /// </summary>
     /// <param name="device">The device to create if missing; its id is used only on insert.</param>
+    /// <param name="reportInterval">How often the device is expected to report (whole seconds, at least 1 s).</param>
     /// <param name="at">The current time (UTC).</param>
     /// <param name="cancellationToken">Cancels the operation.</param>
     /// <returns>The id of the stored device.</returns>
-    Task<DeviceId> EnsureAsync(Device device, DateTimeOffset at, CancellationToken cancellationToken);
+    Task<DeviceId> EnsureAsync(Device device, TimeSpan reportInterval, DateTimeOffset at, CancellationToken cancellationToken);
 
     /// <summary>Stores what the device reported about itself.</summary>
     /// <param name="providerId">The provider id.</param>
@@ -63,5 +65,5 @@ public interface IDeviceStateStore
     /// <param name="externalId">The vendor's id.</param>
     /// <param name="cancellationToken">Cancels the operation.</param>
     /// <returns>The device, or <see langword="null"/>.</returns>
-    Task<DeviceState?> FindAsync(string providerId, string externalId, CancellationToken cancellationToken);
+    Task<Device?> FindAsync(string providerId, string externalId, CancellationToken cancellationToken);
 }

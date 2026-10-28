@@ -77,24 +77,49 @@ The simulator connects to the gateway running on your machine.
    --force-recreate rabbitmq`. The topology (exchange, queues, retries, dead letters) is declared by
    the gateway and worker when they start.
 
-4. **Start the stack** and wait until all three services are healthy:
+4. **Make a demo API key.** A key is 32 random bytes as 64 hex characters; the API stores only its
+   SHA-256. Print both, keep the key for the requests below, and give the API the hash for the demo
+   owner `own_demo` (the owner the simulator's charger is registered to):
+
+   ```powershell
+   $k = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32)).ToLowerInvariant(); $k
+   [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($k))).ToLowerInvariant()
+   ```
+
+   ```sh
+   k=$(openssl rand -hex 32); echo "$k"; printf %s "$k" | sha256sum | cut -d' ' -f1
+   ```
+
+   ```sh
+   dotnet user-secrets --project src/CheapHours.Host set "ApiKeys:Keys:0:Name" demo
+   dotnet user-secrets --project src/CheapHours.Host set "ApiKeys:Keys:0:Hash" <hash>
+   dotnet user-secrets --project src/CheapHours.Host set "ApiKeys:Keys:0:Owner" own_demo
+   dotnet user-secrets --project src/CheapHours.Host set "ApiKeys:Keys:0:Scopes:0" read
+   dotnet user-secrets --project src/CheapHours.Host set "ApiKeys:Keys:0:Scopes:1" execute
+   ```
+
+   The API checks the configured keys when it starts and copies them into MongoDB (`apiKeys`); a key
+   can also be added there directly, without a restart.
+
+5. **Start the stack** and wait until all three services are healthy:
 
    ```sh
    docker compose up -d --wait
    ```
 
-5. **Run the gateway and the worker**, each in its own terminal. The simulator connects within a few
-   seconds, boots and reports `Available`:
+6. **Run the gateway, the worker and the API**, each in its own terminal. The simulator connects within
+   a few seconds, boots and reports `Available`:
 
    ```sh
    dotnet run --project src/CheapHours.Host -- --role gateway --urls http://localhost:5081
    dotnet run --project src/CheapHours.Host -- --role worker
+   dotnet run --project src/CheapHours.Host -- --role api --urls http://localhost:5080
    ```
 
-   Health: `http://localhost:5081/health/live` and `http://localhost:5081/health/ready` (MongoDB and
-   RabbitMQ reachable).
+   Health: `/health/live` and `/health/ready` on the gateway (MongoDB and RabbitMQ reachable) and on
+   the API (MongoDB reachable, keys seeded).
 
-6. **Charge.** Start a charging session on the simulator; it then sends meter values every 15 seconds,
+7. **Charge.** Start a charging session on the simulator; it then sends meter values every 15 seconds,
    which the gateway publishes and the worker stores:
 
    ```sh
@@ -108,6 +133,22 @@ The simulator connects to the gateway running on your machine.
    The simulator does not report `Charging` by itself when a session starts, so the second command
    sends that status. The stop command reports the final meter value in Wh (`METER_STOP`, 2000 when
    not set).
+
+8. **Read it through the API** with the demo key. The device list shows the charger, its status and
+   last reading; its telemetry comes in 15-minute buckets (`from` and `to` in UTC, at most 31 days):
+
+   ```sh
+   curl -s -H "X-Api-Key: $k" http://localhost:5080/v1/devices
+   curl -s -H "X-Api-Key: $k" "http://localhost:5080/v1/devices/<id>/telemetry?from=$(date -u -d '-1 hour' +%FT%TZ)&to=$(date -u +%FT%TZ)"
+   ```
+
+   ```powershell
+   curl.exe -s -H "X-Api-Key: $k" http://localhost:5080/v1/devices
+   $to = [DateTime]::UtcNow; curl.exe -s -H "X-Api-Key: $k" "http://localhost:5080/v1/devices/<id>/telemetry?from=$($to.AddHours(-1).ToString('s'))Z&to=$($to.ToString('s'))Z"
+   ```
+
+   A charger that stops reporting for more than three heartbeat intervals is shown as `Offline`, even
+   if no gateway is left to record it.
 
 `docker compose down -v` stops everything and deletes the local data.
 

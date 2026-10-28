@@ -21,6 +21,9 @@ public static class MongoIndexes
     /// <summary>The ids of messages each consumer has handled.</summary>
     public const string Inbox = "inbox";
 
+    /// <summary>API keys, stored by hash.</summary>
+    public const string ApiKeys = "apiKeys";
+
     /// <summary>How long readings are kept.</summary>
     public static readonly TimeSpan TelemetryRetention = TimeSpan.FromDays(30);
 
@@ -41,10 +44,14 @@ public static class MongoIndexes
         // chargePoints is looked up by _id only; the collection is created so its _id index exists up front.
         await EnsureCollectionAsync(database, ChargePoints, cancellationToken).ConfigureAwait(false);
 
+        // apiKeys is looked up by _id (the key hash) only.
+        await EnsureCollectionAsync(database, ApiKeys, cancellationToken).ConfigureAwait(false);
+
         await database.GetCollection<BsonDocument>(Devices).Indexes.CreateManyAsync(
             [
                 new CreateIndexModel<BsonDocument>(keys.Ascending("providerId").Ascending("externalId"), new CreateIndexOptions { Name = "providerId_externalId", Unique = true }),
-                new CreateIndexModel<BsonDocument>(keys.Ascending("ownerId"), new CreateIndexOptions { Name = "ownerId" }),
+                // Serves the API's owner-scoped device list: filter by owner, page by id.
+                new CreateIndexModel<BsonDocument>(keys.Ascending("ownerId").Ascending("_id"), new CreateIndexOptions { Name = "ownerId_id" }),
             ],
             cancellationToken).ConfigureAwait(false);
 

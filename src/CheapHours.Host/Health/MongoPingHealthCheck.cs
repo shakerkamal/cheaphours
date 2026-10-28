@@ -2,7 +2,7 @@ using Microsoft.Extensions.Diagnostics.HealthChecks;
 using MongoDB.Bson;
 using MongoDB.Driver;
 
-namespace CheapHours.Host.Gateway;
+namespace CheapHours.Host.Health;
 
 /// <summary>Healthy when MongoDB answers a <c>ping</c> within two seconds. Never reports why it failed.</summary>
 /// <param name="database">The database.</param>

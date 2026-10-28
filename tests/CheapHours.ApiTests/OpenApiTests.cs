@@ -143,12 +143,56 @@ public sealed partial class OpenApiTests(ApiFactory factory) : IClassFixture<Api
         Assert.Equal("CheapHours API", doc.GetProperty("info").GetProperty("title").GetString());
     }
 
+    [Fact]
+    public async Task Timestamps_are_typed_strings_and_nullable_ones_allow_null()
+    {
+        var doc = await GetDocumentAsync();
+        var schemas = doc.GetProperty("components").GetProperty("schemas");
+
+        var lastSeenAt = schemas.GetProperty("DeviceDto").GetProperty("properties").GetProperty("lastSeenAt");
+        Assert.Equal(["null", "string"], Types(lastSeenAt).Order(StringComparer.Ordinal));
+        Assert.Equal("date-time", lastSeenAt.GetProperty("format").GetString());
+
+        var ts = schemas.GetProperty("ReadingDto").GetProperty("properties").GetProperty("ts");
+        Assert.Equal(["string"], Types(ts));
+        Assert.Equal("date-time", ts.GetProperty("format").GetString());
+
+        var from = doc.GetProperty("paths").GetProperty("/v1/devices/{id}/telemetry").GetProperty("get").GetProperty("parameters")
+            .EnumerateArray().Single(p => p.GetProperty("name").GetString() == "from").GetProperty("schema");
+        Assert.Equal(["string"], Types(from));
+        Assert.Equal("date-time", from.GetProperty("format").GetString());
+    }
+
+    [Fact]
+    public async Task Reading_power_may_be_null()
+    {
+        var doc = await GetDocumentAsync();
+
+        var powerW = doc.GetProperty("components").GetProperty("schemas").GetProperty("ReadingDto").GetProperty("properties").GetProperty("powerW");
+
+        Assert.Equal(["integer", "null"], Types(powerW).Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public async Task Health_endpoints_are_not_part_of_the_contract()
+    {
+        var doc = await GetDocumentAsync();
+
+        Assert.DoesNotContain(doc.GetProperty("paths").EnumerateObject(), path => path.Name.StartsWith("/health", StringComparison.Ordinal));
+    }
+
     private async Task<JsonElement> GetDocumentAsync()
     {
         using var client = factory.CreateClient(apiKey: null);
         var json = await client.GetStringAsync(new Uri("/openapi/v1.json", UriKind.Relative), TestContext.Current.CancellationToken);
         return JsonDocument.Parse(json).RootElement.Clone();
     }
+
+    // "type" is either one string or an array of strings in OpenAPI 3.1.
+    private static string[] Types(JsonElement schema) =>
+        !schema.TryGetProperty("type", out var type) ? []
+        : type.ValueKind == JsonValueKind.Array ? [.. type.EnumerateArray().Select(t => t.GetString()!)]
+        : [type.GetString()!];
 
     private static IEnumerable<(string Method, string Path, JsonElement Operation)> Operations(JsonElement doc) =>
         doc.GetProperty("paths").EnumerateObject().SelectMany(path => path.Value.EnumerateObject()

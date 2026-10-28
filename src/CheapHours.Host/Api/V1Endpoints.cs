@@ -1,5 +1,6 @@
 using CheapHours.Core.Ids;
 using CheapHours.Host.Api.Auth;
+using CheapHours.Host.Api.Devices;
 using CheapHours.Host.Api.Dtos;
 using CheapHours.Host.Api.Errors;
 using Microsoft.AspNetCore.Mvc;
@@ -7,8 +8,8 @@ using Microsoft.AspNetCore.Mvc;
 namespace CheapHours.Host.Api;
 
 /// <summary>
-/// The ten <c>/v1</c> endpoints. Their contract (paths, scopes, parameters, response types) is fixed;
-/// each answers 501 until the feature named in its handler builds it.
+/// The ten <c>/v1</c> endpoints. Their contract (paths, scopes, parameters, response types) is fixed here;
+/// built endpoints point at their handlers, the others answer 501 until the feature named in their stub builds them.
 /// </summary>
 internal static class V1Endpoints
 {
@@ -23,11 +24,11 @@ internal static class V1Endpoints
         var v1 = app.MapGroup("/v1");
 
         var devices = v1.MapGroup("/devices").WithTags("Devices");
-        devices.MapGet("/", ListDevices).WithName("ListDevices").WithSummary("List devices, with cursor paging.")
+        devices.MapGet("/", DeviceEndpoints.ListAsync).WithName("ListDevices").WithSummary("List devices, with cursor paging.")
             .RequireAuthorization(ApiScopes.ReadPolicy).Produces<Page<DeviceDto>>().ProducesProblem(StatusCodes.Status400BadRequest);
-        devices.MapGet("/{id}", GetDevice).WithName("GetDevice").WithSummary("One device and its last reading.")
+        devices.MapGet("/{id}", DeviceEndpoints.GetAsync).WithName("GetDevice").WithSummary("One device and its last reading.")
             .RequireAuthorization(ApiScopes.ReadPolicy).Produces<DeviceDto>().ProducesProblem(StatusCodes.Status400BadRequest).ProducesProblem(StatusCodes.Status404NotFound);
-        devices.MapGet("/{id}/telemetry", GetTelemetry).WithName("GetDeviceTelemetry").WithSummary("Readings over time, in 15-minute buckets.")
+        devices.MapGet("/{id}/telemetry", DeviceEndpoints.TelemetryAsync).WithName("GetDeviceTelemetry").WithSummary("Readings over time, in 15-minute buckets.")
             .RequireAuthorization(ApiScopes.ReadPolicy).Produces<Page<TelemetryBucketDto>>().ProducesProblem(StatusCodes.Status400BadRequest).ProducesProblem(StatusCodes.Status404NotFound);
         devices.MapPost("/{id}/commands", SendCommand).WithName("SendDeviceCommand").WithSummary("Send one command directly.")
             .RequireAuthorization(ApiScopes.ExecutePolicy).Produces<CommandAcceptedResponse>(StatusCodes.Status202Accepted)
@@ -58,12 +59,6 @@ internal static class V1Endpoints
 
         return v1;
     }
-
-    private static IResult ListDevices(string? cursor, int? limit) => NotYet("the telemetry pipeline");
-
-    private static IResult GetDevice(DeviceId id) => NotYet("the telemetry pipeline");
-
-    private static IResult GetTelemetry(DeviceId id, DateTimeOffset from, DateTimeOffset to, string? resolution, string? cursor, int? limit) => NotYet("the telemetry pipeline");
 
     private static IResult SendCommand(DeviceId id, CreateCommandRequest body, [FromHeader(Name = IdempotencyKeyHeader)] string? idempotencyKey) => NotYet("command dispatch");
 

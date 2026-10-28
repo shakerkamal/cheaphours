@@ -8,7 +8,8 @@ namespace CheapHours.Host.Api.OpenApi;
 
 /// <summary>
 /// Schema fixes for what the generator cannot infer: typed ids (custom converter) become prefixed strings,
-/// the <see cref="Capabilities"/> flags list their names, and Problem Details show the extensions we add.
+/// the <see cref="Capabilities"/> flags list their names, timestamps (custom converter) become typed date-time
+/// strings, and Problem Details show the extensions we add.
 /// </summary>
 internal sealed class CheapHoursSchemaTransformer : IOpenApiSchemaTransformer
 {
@@ -25,6 +26,12 @@ internal sealed class CheapHoursSchemaTransformer : IOpenApiSchemaTransformer
             schema.Pattern = PrefixedIdSchema.Pattern(prefix);
             schema.Description = $"An opaque id starting with '{prefix}'.";
             schema.Properties?.Clear();
+        }
+        else if (type == typeof(DateTimeOffset) || type == typeof(DateTimeOffset?))
+        {
+            // The UTC converter hides the type from the generator; a nullable timestamp may also be null.
+            schema.Type = type == typeof(DateTimeOffset?) ? JsonSchemaType.String | JsonSchemaType.Null : JsonSchemaType.String;
+            schema.Format = "date-time";
         }
         else if (type == typeof(Capabilities))
         {

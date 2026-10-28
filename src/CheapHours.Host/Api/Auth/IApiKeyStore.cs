@@ -1,6 +1,6 @@
 namespace CheapHours.Host.Api.Auth;
 
-/// <summary>Looks API keys up by hash. Keys come from configuration for now; the telemetry pipeline moves them to MongoDB.</summary>
+/// <summary>Looks API keys up by hash (the product uses <see cref="MongoApiKeyStore"/>).</summary>
 internal interface IApiKeyStore
 {
     /// <summary>Finds the key whose SHA-256 hash is <paramref name="keyHash"/>.</summary>

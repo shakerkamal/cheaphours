@@ -26,10 +26,10 @@ internal sealed record DeviceDto(
 
 /// <summary>One normalised reading.</summary>
 /// <param name="Ts">When the device measured it (UTC).</param>
-/// <param name="PowerW">Instantaneous power in W.</param>
+/// <param name="PowerW">Instantaneous power in W (reported, or derived from the energy readings), or <see langword="null"/> when unknown.</param>
 /// <param name="EnergyWh">Cumulative energy in Wh.</param>
 /// <param name="SocPercent">State of charge in percent, if known.</param>
-internal sealed record ReadingDto(DateTimeOffset Ts, int PowerW, long EnergyWh, decimal? SocPercent);
+internal sealed record ReadingDto(DateTimeOffset Ts, int? PowerW, long EnergyWh, decimal? SocPercent);
 
 /// <summary>One 15-minute telemetry bucket.</summary>
 /// <param name="Start">Bucket start (UTC).</param>

@@ -29,7 +29,7 @@ public sealed class LastReadingTests(MongoFixture mongo) : IAsyncLifetime
         var device = new Device(
             DeviceId.New(_time), Owner, "ocpp", $"CP-{Guid.NewGuid():N}", DeviceType.Charger,
             Capabilities.ReadTelemetry, new DeviceAttributes(maxPowerW: 11000));
-        return await new DeviceStateStore(_database).EnsureAsync(device, T0, TestContext.Current.CancellationToken);
+        return await new DeviceStateStore(_database).EnsureAsync(device, TimeSpan.FromSeconds(60), T0, TestContext.Current.CancellationToken);
     }
 
     private Task WriteAsync(DeviceId device, params DeviceReading[] readings) =>

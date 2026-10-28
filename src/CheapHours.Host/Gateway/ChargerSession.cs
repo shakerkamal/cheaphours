@@ -27,6 +27,7 @@ internal sealed partial class ChargerSession(
     OcppProvider provider,
     TimeProvider time,
     IOptions<GatewayOptions> options,
+    IOptions<OcppOptions> ocppOptions,
     ILogger<ChargerSession> logger)
 {
     /// <summary>The largest message accepted; larger ones close the connection with 1009.</summary>
@@ -39,6 +40,7 @@ internal sealed partial class ChargerSession(
     public const Capabilities ChargerCapabilities = Capabilities.ReadTelemetry | Capabilities.StartStop | Capabilities.SetPowerLimit;
 
     private readonly string _replicaId = options.Value.ReplicaId;
+    private readonly TimeSpan _heartbeatInterval = ocppOptions.Value.HeartbeatInterval;
 
     /// <summary>Runs the connection until it ends.</summary>
     /// <param name="socket">The accepted socket.</param>
@@ -92,7 +94,7 @@ internal sealed partial class ChargerSession(
                 ChargerCapabilities,
                 new DeviceAttributes(maxPowerW: registration.MaxPowerW));
 
-            connection.DeviceId = await devices.EnsureAsync(device, now, cancellationToken).ConfigureAwait(false);
+            connection.DeviceId = await devices.EnsureAsync(device, _heartbeatInterval, now, cancellationToken).ConfigureAwait(false);
             await registry.RecordAsync(new ConnectionEntry(connection.ChargePointId, _replicaId, connection.ConnectionId, now), cancellationToken).ConfigureAwait(false);
             return true;
         }

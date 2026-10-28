@@ -27,7 +27,7 @@ public sealed class GatewaySessionTests(MongoFixture mongo) : IAsyncLifetime
     private Task<OcppTestClient> Connect(string id = "CP001", string password = GatewayFactory.Password) =>
         OcppTestClient.ConnectAsync(_gateway.OcppUri(id), id, password);
 
-    private Task<DeviceState?> Device(string id = "CP001") => _gateway.Devices.FindAsync("ocpp", id, TestContext.Current.CancellationToken);
+    private Task<Device?> Device(string id = "CP001") => _gateway.Devices.FindAsync("ocpp", id, TestContext.Current.CancellationToken);
 
     private static string Status(string status, int connector = 1, string? timestamp = null) =>
         timestamp is null
@@ -77,10 +77,10 @@ public sealed class GatewaySessionTests(MongoFixture mongo) : IAsyncLifetime
         Assert.NotNull(device);
         Assert.Equal(DeviceStatus.Available, device.Status);
         Assert.Equal(DeviceType.Charger, device.Type);
-        Assert.Equal(11000, device.MaxPowerW);
+        Assert.Equal(11000, device.Attributes.MaxPowerW);
         Assert.StartsWith("dev_", device.Id.Value, StringComparison.Ordinal);
-        Assert.Equal(new DeviceHardware("Solidstudio", "VCP", "1.0"), device.Hardware);
-        Assert.NotNull(device.LastSeenAt);
+        Assert.Equal(new DeviceHardware("Solidstudio", "VCP", "1.0"), device.State!.Hardware);
+        Assert.NotNull(device.State!.LastSeenAt);
 
         var entry = await _gateway.Registry.FindAsync("CP001", TestContext.Current.CancellationToken);
         Assert.Equal(GatewayFactory.ReplicaId, entry!.ReplicaId);
@@ -100,7 +100,7 @@ public sealed class GatewaySessionTests(MongoFixture mongo) : IAsyncLifetime
         AssertCallError(await client.CallAsync("""[2,"b2","BootNotification",{"chargePointVendor":"V"}]"""), "b2", "OccurenceConstraintViolation");
 
         Assert.Equal("h1", (await client.CallAsync(Heartbeat))[1]!.GetValue<string>());
-        Assert.Null((await Device())!.Hardware);
+        Assert.Null((await Device())!.State!.Hardware);
     }
 
     [Fact]
@@ -236,7 +236,7 @@ public sealed class GatewaySessionTests(MongoFixture mongo) : IAsyncLifetime
 
         var device = await Device();
         Assert.Equal(DeviceStatus.Faulted, device!.Status);
-        Assert.InRange(device.StatusAt, before, DateTimeOffset.UtcNow.AddSeconds(1));
+        Assert.InRange(device.State!.StatusAt, before, DateTimeOffset.UtcNow.AddSeconds(1));
     }
 
     [Fact]
@@ -254,12 +254,12 @@ public sealed class GatewaySessionTests(MongoFixture mongo) : IAsyncLifetime
     {
         using var client = await Connect();
         await client.CallAsync(Status("Available"));
-        var first = (await Device())!.LastSeenAt;
+        var first = (await Device())!.State!.LastSeenAt;
 
         await Task.Delay(20, TestContext.Current.CancellationToken);
         await client.CallAsync("not even json");
 
-        Assert.True((await Device())!.LastSeenAt > first);
+        Assert.True((await Device())!.State!.LastSeenAt > first);
     }
 
     [Fact]
@@ -282,6 +282,38 @@ public sealed class GatewaySessionTests(MongoFixture mongo) : IAsyncLifetime
         Assert.DoesNotContain("mongodb", description, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(" at ", description, StringComparison.Ordinal);
         Assert.Equal("h1", (await client.CallAsync(Heartbeat))[1]!.GetValue<string>());
+    }
+
+    [Fact]
+    public async Task First_connection_records_the_heartbeat_interval_as_report_interval()
+    {
+        using var client = await Connect();
+        await client.CallAsync(Heartbeat);
+
+        Assert.Equal(TimeSpan.FromSeconds(60), (await Device())!.State!.ReportInterval);
+    }
+
+    [Fact]
+    public async Task Reconnecting_after_an_interval_change_records_the_new_interval()
+    {
+        using (var first = await Connect())
+        {
+            await first.CallAsync(Heartbeat);
+        }
+
+        // A gateway restarted with another interval, on the same database.
+        await using var restarted = new GatewayFactory(
+            mongo.ConnectionString,
+            overrides: new Dictionary<string, string?> { ["Providers:Ocpp:HeartbeatIntervalSeconds"] = "120" })
+        {
+            DatabaseName = _gateway.DatabaseName,
+        };
+        await restarted.StartAsync();
+        using var second = await OcppTestClient.ConnectAsync(restarted.OcppUri("CP001"), "CP001", GatewayFactory.Password);
+        await second.CallAsync(Heartbeat);
+
+        var device = await restarted.Devices.FindAsync("ocpp", "CP001", TestContext.Current.CancellationToken);
+        Assert.Equal(TimeSpan.FromSeconds(120), device!.State!.ReportInterval);
     }
 
     [Fact]

@@ -1,6 +1,8 @@
+using CheapHours.Persistence.ApiKeys;
 using CheapHours.Persistence.ChargePoints;
 using CheapHours.Persistence.Connections;
 using CheapHours.Persistence.Devices;
+using CheapHours.Persistence.Telemetry;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -66,6 +68,9 @@ public static class MongoSetup
         services.AddSingleton(sp => sp.GetRequiredService<IMongoClient>().GetDatabase(sp.GetRequiredService<IOptions<MongoOptions>>().Value.Database));
         services.AddSingleton<IChargePointRegistrations, ChargePointRegistrations>();
         services.AddSingleton<IDeviceStateStore, DeviceStateStore>();
+        services.AddSingleton<IDeviceReader, DeviceReader>();
+        services.AddSingleton<ITelemetryReader, TelemetryReader>();
+        services.AddSingleton<IStoredApiKeys, StoredApiKeys>();
         services.AddSingleton<IConnectionRegistry, ConnectionRegistry>();
         return services;
     }

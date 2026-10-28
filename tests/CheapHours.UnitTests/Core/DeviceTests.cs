@@ -177,6 +177,117 @@ public sealed class DeviceTests
             _wallboxId, default, "ocpp", "CP-01", DeviceType.Charger, Capabilities.StartStop, new DeviceAttributes(maxPowerW: 7400)));
     }
 
-    private static Device Charger(DeviceAttributes attributes) =>
-        new(_wallboxId, _owner, "ocpp", "CP-01", DeviceType.Charger, Capabilities.StartStop | Capabilities.SetPowerLimit, attributes);
+    [Fact]
+    public void Device_created_without_a_state_is_unknown()
+    {
+        var device = Charger(new DeviceAttributes(maxPowerW: 11_000));
+
+        Assert.Null(device.State);
+        Assert.Equal(DeviceStatus.Unknown, device.Status);
+        Assert.Equal(DeviceStatus.Unknown, device.StatusAsOf(_utcNoon));
+    }
+
+    [Fact]
+    public void Device_keeps_its_state()
+    {
+        var reading = new DeviceReading("CP-01", _utcNoon.AddMinutes(-1), 7_000, 12_500, 40m);
+        var hardware = new DeviceHardware("Solidstudio", "VCP");
+        var state = new DeviceState(DeviceStatus.Charging, _utcNoon.AddMinutes(-5), _utcNoon.AddSeconds(-10), TimeSpan.FromSeconds(60), hardware, reading);
+
+        var device = Charger(new DeviceAttributes(maxPowerW: 11_000), state);
+
+        Assert.Same(state, device.State);
+        Assert.Equal(DeviceStatus.Charging, device.Status);
+        Assert.Equal(_utcNoon.AddSeconds(-10), state.LastSeenAt);
+        Assert.Equal(TimeSpan.FromSeconds(60), state.ReportInterval);
+        Assert.Same(hardware, state.Hardware);
+        Assert.Same(reading, state.LastReading);
+    }
+
+    [Fact]
+    public void State_without_optional_values_reports_them_unknown()
+    {
+        var state = new DeviceState(DeviceStatus.Available, _utcNoon);
+
+        Assert.Null(state.LastSeenAt);
+        Assert.Null(state.ReportInterval);
+        Assert.Null(state.Hardware);
+        Assert.Null(state.LastReading);
+    }
+
+    [Fact]
+    public void Last_reading_of_another_device_is_refused()
+    {
+        var state = new DeviceState(DeviceStatus.Available, _utcNoon, lastReading: new DeviceReading("CP-02", _utcNoon, null, 100));
+
+        Assert.Throws<ArgumentException>(() => Charger(new DeviceAttributes(maxPowerW: 11_000), state));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-60)]
+    public void Non_positive_report_interval_is_refused(int seconds)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new DeviceState(DeviceStatus.Available, _utcNoon, reportInterval: TimeSpan.FromSeconds(seconds)));
+    }
+
+    [Fact]
+    public void Non_utc_state_times_are_refused()
+    {
+        var berlin = new DateTimeOffset(2026, 10, 12, 14, 0, 0, TimeSpan.FromHours(2));
+
+        Assert.Throws<ArgumentException>(() => new DeviceState(DeviceStatus.Available, _utcNoon, lastSeenAt: berlin));
+        Assert.Throws<ArgumentException>(() => new DeviceState(DeviceStatus.Available, berlin));
+    }
+
+    [Fact]
+    public void Undefined_status_is_refused()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new DeviceState((DeviceStatus)99, _utcNoon));
+    }
+
+    [Theory]
+    [InlineData("Charging", 181, "Offline")] // silent past three intervals
+    [InlineData("Charging", 180, "Charging")] // exactly three intervals
+    [InlineData("Available", 30, "Available")]
+    [InlineData("Offline", 30, "Offline")] // a stored Offline stays Offline
+    public void Status_as_of_now_accounts_for_silence(string stored, int secondsSinceSeen, string expected)
+    {
+        var seen = new DateTimeOffset(2026, 10, 12, 10, 0, 0, TimeSpan.Zero);
+        var state = new DeviceState(Enum.Parse<DeviceStatus>(stored), seen.AddMinutes(-30), seen, TimeSpan.FromSeconds(60));
+
+        var device = Charger(new DeviceAttributes(maxPowerW: 11_000), state);
+
+        Assert.Equal(Enum.Parse<DeviceStatus>(expected), device.StatusAsOf(seen.AddSeconds(secondsSinceSeen)));
+        Assert.Equal(Enum.Parse<DeviceStatus>(stored), device.Status);
+    }
+
+    [Fact]
+    public void Never_seen_device_counts_from_its_status_time()
+    {
+        var statusAt = new DateTimeOffset(2026, 10, 12, 10, 0, 0, TimeSpan.Zero);
+        var device = Charger(new DeviceAttributes(maxPowerW: 11_000), new DeviceState(DeviceStatus.Unknown, statusAt, reportInterval: TimeSpan.FromSeconds(60)));
+
+        Assert.Equal(DeviceStatus.Offline, device.StatusAsOf(statusAt.AddMinutes(5)));
+        Assert.Equal(DeviceStatus.Unknown, device.StatusAsOf(statusAt.AddMinutes(2)));
+    }
+
+    [Fact]
+    public void Device_without_report_interval_keeps_its_stored_status()
+    {
+        var device = Charger(new DeviceAttributes(maxPowerW: 11_000), new DeviceState(DeviceStatus.Available, _utcNoon.AddDays(-1), _utcNoon.AddDays(-1)));
+
+        Assert.Equal(DeviceStatus.Available, device.StatusAsOf(_utcNoon));
+    }
+
+    [Fact]
+    public void Status_as_of_a_non_utc_time_is_refused()
+    {
+        var device = Charger(new DeviceAttributes(maxPowerW: 11_000), new DeviceState(DeviceStatus.Available, _utcNoon, _utcNoon, TimeSpan.FromSeconds(60)));
+
+        Assert.Throws<ArgumentException>(() => device.StatusAsOf(new DateTimeOffset(2026, 10, 12, 14, 0, 0, TimeSpan.FromHours(2))));
+    }
+
+    private static Device Charger(DeviceAttributes attributes, DeviceState? state = null) =>
+        new(_wallboxId, _owner, "ocpp", "CP-01", DeviceType.Charger, Capabilities.StartStop | Capabilities.SetPowerLimit, attributes, state);
 }

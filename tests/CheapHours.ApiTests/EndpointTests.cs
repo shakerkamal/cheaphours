@@ -21,9 +21,29 @@ public sealed class EndpointTests(ApiFactory factory) : IClassFixture<ApiFactory
         { "GET", $"/v1/savings?{Range}", null },
     };
 
+    // Built endpoints read MongoDB, which these tests do not have; the integration tests cover them.
+    public static TheoryData<string, string, string?> NotBuiltEndpoints
+    {
+        get
+        {
+            string[] built = ["GET /v1/devices", "GET /v1/devices/dev_wallbox_01", $"GET /v1/devices/dev_wallbox_01/telemetry?{Range}&resolution=15m"];
+            var data = new TheoryData<string, string, string?>();
+            foreach (var row in V1Endpoints)
+            {
+                var (method, path, body) = row.Data;
+                if (!built.Contains($"{method} {path}", StringComparer.Ordinal))
+                {
+                    data.Add(method, path, body);
+                }
+            }
+
+            return data;
+        }
+    }
+
     [Theory]
-    [MemberData(nameof(V1Endpoints))]
-    public async Task Every_v1_endpoint_answers_501_after_authentication(string method, string path, string? body)
+    [MemberData(nameof(NotBuiltEndpoints))]
+    public async Task Every_unbuilt_v1_endpoint_answers_501_after_authentication(string method, string path, string? body)
     {
         using var client = factory.CreateClient(ApiFactory.ExecuteKey);
         using var request = new HttpRequestMessage(new HttpMethod(method), new Uri(path, UriKind.Relative));

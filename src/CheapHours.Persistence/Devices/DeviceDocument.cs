@@ -38,6 +38,10 @@ internal sealed class DeviceDocument
     [BsonIgnoreIfNull]
     public DateTime? LastSeenAt { get; set; }
 
+    /// <summary>Gets or sets how often the device is expected to report, in seconds; absent when unknown.</summary>
+    [BsonIgnoreIfNull]
+    public int? ReportIntervalSeconds { get; set; }
+
     /// <summary>Gets or sets the latest reading. The worker writes it with a pipeline update (see <c>LastReadingUpdate</c>).</summary>
     [BsonIgnoreIfNull]
     public LastReadingDocument? LastReading { get; set; }

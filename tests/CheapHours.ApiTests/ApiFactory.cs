@@ -1,11 +1,18 @@
 using CheapHours.Host.Api.Auth;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace CheapHours.ApiTests;
 
-/// <summary>Runs the host in the given role with two test API keys (stored as hashes, like real ones).</summary>
+/// <summary>
+/// Runs the host in the given role with two test API keys (stored as hashes, like real ones), held in memory
+/// instead of MongoDB. MongoDB points at a closed port, so these tests need no Docker; endpoints that read
+/// data are covered by the integration tests.
+/// </summary>
 public class ApiFactory : WebApplicationFactory<Program>
 {
     /// <summary>A key holding only the read scope.</summary>
@@ -49,7 +56,10 @@ public class ApiFactory : WebApplicationFactory<Program>
             ["ApiKeys:Keys:1:Owner"] = "own_test",
             ["ApiKeys:Keys:1:Scopes:0"] = "read",
             ["ApiKeys:Keys:1:Scopes:1"] = "execute",
+            ["ConnectionStrings:Mongo"] = "mongodb://127.0.0.1:1/?directConnection=true",
+            ["Mongo:ServerSelectionTimeout"] = "00:00:00.500",
         }));
+        builder.ConfigureTestServices(services => services.Replace(ServiceDescriptor.Singleton<IApiKeyStore, InMemoryApiKeyStore>()));
     }
 }
 

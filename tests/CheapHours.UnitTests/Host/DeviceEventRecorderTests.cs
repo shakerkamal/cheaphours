@@ -128,7 +128,7 @@ public sealed class DeviceEventRecorderTests
 
     private sealed class RecordingDevices(List<string> calls) : IDeviceStateStore
     {
-        public Task<DeviceId> EnsureAsync(Device device, DateTimeOffset at, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<DeviceId> EnsureAsync(Device device, TimeSpan reportInterval, DateTimeOffset at, CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public Task RecordHardwareAsync(string providerId, string externalId, DeviceHardware hardware, CancellationToken cancellationToken)
         {
@@ -146,6 +146,6 @@ public sealed class DeviceEventRecorderTests
 
         public Task RecordSeenAsync(string providerId, string externalId, DateTimeOffset at, CancellationToken cancellationToken) => throw new NotSupportedException();
 
-        public Task<DeviceState?> FindAsync(string providerId, string externalId, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<Device?> FindAsync(string providerId, string externalId, CancellationToken cancellationToken) => throw new NotSupportedException();
     }
 }

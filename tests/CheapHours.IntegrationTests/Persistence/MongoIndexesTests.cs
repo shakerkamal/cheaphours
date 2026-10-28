@@ -19,13 +19,16 @@ public sealed class MongoIndexesTests(MongoFixture mongo)
         var devices = await IndexesAsync(MongoIndexes.Devices);
         var unique = Assert.Single(devices, i => i["key"].AsBsonDocument == new BsonDocument { { "providerId", 1 }, { "externalId", 1 } });
         Assert.True(unique.GetValue("unique", false).ToBoolean());
-        Assert.Single(devices, i => i["key"].AsBsonDocument == new BsonDocument("ownerId", 1));
+        Assert.Single(devices, i => i["name"] == "ownerId_id" && i["key"].AsBsonDocument == new BsonDocument { { "ownerId", 1 }, { "_id", 1 } });
 
         var connections = await IndexesAsync(MongoIndexes.Connections);
         Assert.Single(connections, i => i["key"].AsBsonDocument == new BsonDocument("replicaId", 1));
 
         var chargePoints = await IndexesAsync(MongoIndexes.ChargePoints);
         Assert.Single(chargePoints, i => i["key"].AsBsonDocument == new BsonDocument("_id", 1));
+
+        var apiKeys = await IndexesAsync(MongoIndexes.ApiKeys);
+        Assert.Single(apiKeys, i => i["key"].AsBsonDocument == new BsonDocument("_id", 1));
     }
 
     [Fact]

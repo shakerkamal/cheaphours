@@ -76,7 +76,8 @@
       "CommandHistoryEntryDto": {
         "properties": {
           "at": {
-            "format": "date-time"
+            "format": "date-time",
+            "type": "string"
           },
           "state": {
             "$ref": "#/components/schemas/CommandState"
@@ -161,7 +162,8 @@
             "$ref": "#/components/schemas/DeviceId"
           },
           "departureAt": {
-            "format": "date-time"
+            "format": "date-time",
+            "type": "string"
           },
           "targetSocPercent": {
             "format": "int32",
@@ -208,7 +210,11 @@
             ]
           },
           "lastSeenAt": {
-            "format": "date-time"
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "maxPowerW": {
             "format": "int32",
@@ -282,7 +288,8 @@
             "$ref": "#/components/schemas/DeviceId"
           },
           "departureAt": {
-            "format": "date-time"
+            "format": "date-time",
+            "type": "string"
           },
           "id": {
             "$ref": "#/components/schemas/GoalId"
@@ -401,7 +408,11 @@
             "type": "number"
           },
           "expiresAt": {
-            "format": "date-time"
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "goalId": {
             "$ref": "#/components/schemas/GoalId"
@@ -452,14 +463,16 @@
       "PlanSlotDto": {
         "properties": {
           "end": {
-            "format": "date-time"
+            "format": "date-time",
+            "type": "string"
           },
           "powerW": {
             "format": "int32",
             "type": "integer"
           },
           "start": {
-            "format": "date-time"
+            "format": "date-time",
+            "type": "string"
           }
         },
         "required": [
@@ -480,14 +493,16 @@
       "PriceSlotDto": {
         "properties": {
           "end": {
-            "format": "date-time"
+            "format": "date-time",
+            "type": "string"
           },
           "priceEurPerMwh": {
             "format": "double",
             "type": "number"
           },
           "start": {
-            "format": "date-time"
+            "format": "date-time",
+            "type": "string"
           },
           "zone": {
             "type": "string"
@@ -559,7 +574,10 @@
           },
           "powerW": {
             "format": "int32",
-            "type": "integer"
+            "type": [
+              "null",
+              "integer"
+            ]
           },
           "socPercent": {
             "format": "double",
@@ -569,7 +587,8 @@
             ]
           },
           "ts": {
-            "format": "date-time"
+            "format": "date-time",
+            "type": "string"
           }
         },
         "required": [
@@ -587,7 +606,8 @@
             "type": "number"
           },
           "from": {
-            "format": "date-time"
+            "format": "date-time",
+            "type": "string"
           },
           "plannedCostEur": {
             "format": "double",
@@ -602,7 +622,8 @@
             "type": "integer"
           },
           "to": {
-            "format": "date-time"
+            "format": "date-time",
+            "type": "string"
           }
         },
         "required": [
@@ -622,7 +643,8 @@
             "type": "integer"
           },
           "end": {
-            "format": "date-time"
+            "format": "date-time",
+            "type": "string"
           },
           "energyWh": {
             "format": "int64",
@@ -636,7 +658,8 @@
             ]
           },
           "start": {
-            "format": "date-time"
+            "format": "date-time",
+            "type": "string"
           }
         },
         "required": [
@@ -1189,7 +1212,8 @@
             "name": "from",
             "required": true,
             "schema": {
-              "format": "date-time"
+              "format": "date-time",
+              "type": "string"
             }
           },
           {
@@ -1197,7 +1221,8 @@
             "name": "to",
             "required": true,
             "schema": {
-              "format": "date-time"
+              "format": "date-time",
+              "type": "string"
             }
           },
           {
@@ -1747,7 +1772,8 @@
             "name": "from",
             "required": true,
             "schema": {
-              "format": "date-time"
+              "format": "date-time",
+              "type": "string"
             }
           },
           {
@@ -1755,7 +1781,8 @@
             "name": "to",
             "required": true,
             "schema": {
-              "format": "date-time"
+              "format": "date-time",
+              "type": "string"
             }
           },
           {
@@ -1875,7 +1902,8 @@
             "name": "from",
             "required": true,
             "schema": {
-              "format": "date-time"
+              "format": "date-time",
+              "type": "string"
             }
           },
           {
@@ -1883,7 +1911,8 @@
             "name": "to",
             "required": true,
             "schema": {
-              "format": "date-time"
+              "format": "date-time",
+              "type": "string"
             }
           }
         ],
