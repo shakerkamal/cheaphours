@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\CheapHours.Core\CheapHours.Core.csproj" />
+    <ProjectReference Include="..\..\src\CheapHours.Messaging\CheapHours.Messaging.csproj" />
     <ProjectReference Include="..\..\src\CheapHours.Messaging.Contracts\CheapHours.Messaging.Contracts.csproj" />
     <ProjectReference Include="..\..\src\CheapHours.Providers.Kit\CheapHours.Providers.Kit.csproj" />
     <ProjectReference Include="..\..\src\CheapHours.Host\CheapHours.Host.csproj" />

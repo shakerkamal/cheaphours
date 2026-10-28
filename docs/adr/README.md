@@ -8,7 +8,7 @@ the old one.
 |---|---|---|
 | [001](001-modular-monolith.md) | Modular monolith in three process roles | Accepted |
 | 002 | MongoDB time-series collection for telemetry | Planned |
-| 003 | RabbitMQ as the broker | Planned |
+| [003](003-rabbitmq.md) | RabbitMQ with quorum queues and delay-queue retries | Accepted |
 | 004 | Own small outbox and inbox on RabbitMQ.Client | Planned |
 | 005 | Greedy cheapest-slot planner | Planned |
 | 006 | The OCPP 1.6J messages smart charging needs | Planned |

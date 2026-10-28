@@ -27,6 +27,10 @@ services:
 
   rabbitmq:
     image: rabbitmq:4.2.9-management
+    environment:
+      # Its own account: the default guest account only works from inside the container.
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?set RABBITMQ_USER in .env}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD in .env}
     ports:
       - "5672:5672"
       - "15672:15672"
