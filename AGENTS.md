@@ -125,7 +125,7 @@ page is binding.
   camelCase and enum-name conventions; `schemaVersion` on every document.
 - **ADRs:** 001 (modular monolith), 002 (time-series telemetry), 003 (RabbitMQ), 008 (gateway command
   routing).
-- **Tests:** 850 green: unit, property, architecture, API contract, and integration tests against a
+- **Tests:** 851 green: unit, property, architecture, API contract, and integration tests against a
   real MongoDB and RabbitMQ in Testcontainers, with a real gateway on Kestrel, a real worker host and
   the API role on its own database (one model-based FsCheck test checks the bucket pipeline).
   The integration tests include broker and database fault tests. `dotnet test` needs Docker running.

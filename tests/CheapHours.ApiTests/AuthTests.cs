@@ -3,6 +3,8 @@ using CheapHours.Core.Ids;
 using CheapHours.Host.Api.Auth;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Configuration.Json;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
 namespace CheapHours.ApiTests;
@@ -14,6 +16,16 @@ public sealed class AuthTests(ApiFactory factory) : IClassFixture<ApiFactory>
 
     // A read endpoint that is not built yet, so passing auth shows as 501 without a database.
     private static readonly Uri Savings = new("/v1/savings?from=2026-10-01T00:00:00Z&to=2026-10-02T00:00:00Z", UriKind.Relative);
+
+    [Fact]
+    public void Test_host_does_not_read_the_developers_user_secrets()
+    {
+        var configuration = (IConfigurationRoot)factory.Services.GetRequiredService<IConfiguration>();
+
+        Assert.DoesNotContain(
+            configuration.Providers.OfType<JsonConfigurationProvider>(),
+            p => p.Source.Path == ApiFactory.UserSecretsFile);
+    }
 
     [Fact]
     public async Task Missing_key_gets_401()

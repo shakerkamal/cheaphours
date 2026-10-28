@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Configuration.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -20,6 +21,9 @@ public class ApiFactory : WebApplicationFactory<Program>
 
     /// <summary>A key holding the read and execute scopes.</summary>
     public const string ExecuteKey = "ch_test_execute_key_for_api_tests_only";
+
+    /// <summary>The file name <c>AddUserSecrets</c> reads.</summary>
+    public const string UserSecretsFile = "secrets.json";
 
     /// <summary>Gets the role the host runs in.</summary>
     protected virtual string Role => "api";
@@ -45,26 +49,36 @@ public class ApiFactory : WebApplicationFactory<Program>
 
         builder.UseSetting("role", Role);
         builder.UseEnvironment("Development");
-        builder.ConfigureAppConfiguration((_, config) => config.AddInMemoryCollection(new Dictionary<string, string?>
+        builder.ConfigureAppConfiguration((_, config) =>
         {
-            ["ApiKeys:Keys:0:Name"] = "test-read",
-            ["ApiKeys:Keys:0:Hash"] = ApiKeyHasher.Hash(ReadKey),
-            ["ApiKeys:Keys:0:Owner"] = "own_test",
-            ["ApiKeys:Keys:0:Scopes:0"] = "read",
-            ["ApiKeys:Keys:1:Name"] = "test-execute",
-            ["ApiKeys:Keys:1:Hash"] = ApiKeyHasher.Hash(ExecuteKey),
-            ["ApiKeys:Keys:1:Owner"] = "own_test",
-            ["ApiKeys:Keys:1:Scopes:0"] = "read",
-            ["ApiKeys:Keys:1:Scopes:1"] = "execute",
-            ["ConnectionStrings:Mongo"] = "mongodb://127.0.0.1:1/?directConnection=true",
-            ["Mongo:ServerSelectionTimeout"] = "00:00:00.500",
-        }));
+            // Development loads the developer's user secrets. A local demo key there would merge into the test
+            // keys below (an extra scope on key 0, for example), so the tests would depend on the machine.
+            foreach (var secrets in config.Sources.OfType<JsonConfigurationSource>().Where(s => s.Path == UserSecretsFile).ToList())
+            {
+                config.Sources.Remove(secrets);
+            }
+
+            config.AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ApiKeys:Keys:0:Name"] = "test-read",
+                ["ApiKeys:Keys:0:Hash"] = ApiKeyHasher.Hash(ReadKey),
+                ["ApiKeys:Keys:0:Owner"] = "own_test",
+                ["ApiKeys:Keys:0:Scopes:0"] = "read",
+                ["ApiKeys:Keys:1:Name"] = "test-execute",
+                ["ApiKeys:Keys:1:Hash"] = ApiKeyHasher.Hash(ExecuteKey),
+                ["ApiKeys:Keys:1:Owner"] = "own_test",
+                ["ApiKeys:Keys:1:Scopes:0"] = "read",
+                ["ApiKeys:Keys:1:Scopes:1"] = "execute",
+                ["ConnectionStrings:Mongo"] = "mongodb://127.0.0.1:1/?directConnection=true",
+                ["Mongo:ServerSelectionTimeout"] = "00:00:00.500",
+            });
+        });
         builder.ConfigureTestServices(services => services.Replace(ServiceDescriptor.Singleton<IApiKeyStore, InMemoryApiKeyStore>()));
     }
 }
 
 /// <summary>
-/// Runs the host in the gateway role without a database: MongoDB points at a closed port, so the gateway
+/// Runs the host in the gateway role without a database or broker: both point at a closed port, so the gateway
 /// stays "starting" (its background setup keeps retrying), which is enough to check which routes it maps.
 /// </summary>
 public sealed class GatewayFactory : ApiFactory
@@ -81,6 +95,7 @@ public sealed class GatewayFactory : ApiFactory
             // The Development charger registration needs a hash; this one is the SHA-256 of nothing in particular.
             ["Providers:Ocpp:ChargePoints:0:PasswordHash"] = new string('0', 64),
             ["ConnectionStrings:Mongo"] = "mongodb://127.0.0.1:1/?directConnection=true",
+            ["ConnectionStrings:RabbitMq"] = "amqp://127.0.0.1:1/",
             ["Mongo:ServerSelectionTimeout"] = "00:00:00.500",
         }));
     }
