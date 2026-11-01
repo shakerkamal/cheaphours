@@ -2,6 +2,7 @@ using System.Net.WebSockets;
 using System.Text;
 using CheapHours.Core.Devices;
 using CheapHours.Core.Ids;
+using CheapHours.Host.Devices;
 using CheapHours.Messaging;
 using CheapHours.Persistence.ChargePoints;
 using CheapHours.Persistence.Connections;
@@ -199,7 +200,7 @@ internal sealed partial class ChargerSession(
         {
             try
             {
-                await recorder.RecordAsync(OcppProvider.Id, connection.ChargePointId, connection.DeviceId, outcome.Events, receivedAt, cancellationToken).ConfigureAwait(false);
+                await recorder.RecordAsync(OcppProvider.Id, connection.ChargePointId, connection.DeviceId, outcome.Events, receivedAt, Guid.CreateVersion7(receivedAt), seenAt: null, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception ex) when (ex is MongoException or TimeoutException or BrokerUnavailableException)
             {

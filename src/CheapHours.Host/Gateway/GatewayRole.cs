@@ -1,3 +1,4 @@
+using CheapHours.Host.Devices;
 using CheapHours.Host.Health;
 using CheapHours.Messaging;
 using CheapHours.Persistence;

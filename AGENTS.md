@@ -22,18 +22,20 @@ page is binding.
 
 ## Status
 
-**Next:** the user reviews the gate of `add-device-read-api` (all tasks implemented). After approval:
-`/opsx:archive`, then propose the next change (adapter kit and cloud providers).
+**Next:** propose the heat-pump-cloud change (its simulator with signed webhooks, the webhook provider
+with the first `IWebhookVerifier`, and the gate where all three providers pass the contract suite).
 
 ### Done
 
-- **Solution and build:** 11 source and 3 test projects in `CheapHours.slnx`; one host with
-  `--role api | gateway | worker`; central package versions; warnings are errors.
+- **Solution and build:** 11 source projects, 1 simulator and 4 test projects in `CheapHours.slnx`; one
+  host with `--role api | gateway | worker`; central package versions; warnings are errors.
 - **Module boundaries:** architecture tests keep Core free of other modules, I/O and vendor names, keep
-  providers apart, and forbid direct clock reads in Core and Planning.
+  providers apart, forbid direct clock reads in Core and Planning, and keep simulators free of any `src`
+  reference (and in the solution).
 - **Domain model:** prefixed typed ids (`dev_`, `goal_`, `plan_`, `cmd_`, …), `Capabilities`,
   `DeviceReading`, `Device` with typed attributes, `DeviceCommand`, closed `SendResult` and
-  `DeviceEvent`, `CommandState`, `Goal`, `Plan` and `PlanSlot` on the 15-minute grid.
+  `DeviceEvent` (including `Discovered`, which carries the type and the attributes the type requires),
+  `CommandState`, `Goal`, `Plan` and `PlanSlot` on the 15-minute grid.
   - One device model: `Device` carries its last known `DeviceState` (status, last seen, report interval,
     hardware, last reading) and `StatusAsOf(now)` shows a device silent for more than three report
     intervals as `Offline`.
@@ -41,6 +43,54 @@ page is binding.
     power, last SoC).
 - **Adapter kit interfaces:** `IDeviceProvider`, `IPollingProvider`, `IInboundTranslator`,
   `ICommandSender`, `IWebhookVerifier`; `AddProvider<T>` registration and a startup validator.
+- **Adapter kit machinery (what every HTTP provider gets from `AddProvider<TProvider, TOptions>`):**
+  - Its own named `HttpClient` and resilience pipeline: total timeout, jittered retry for 5xx, 408,
+    timeouts and connection failures (never 429 or other 4xx), circuit breaker, attempt timeout. One
+    pipeline per provider is the bulkhead.
+  - `ProviderHttpClient<TProvider>`: one call that rate-limits per account (a token bucket on the
+    injected clock, waiting at most 2 s), attaches the OAuth bearer token, and after a 401 refreshes once
+    and retries once.
+  - One failure classification (`VendorFailure`): transient with `Retry-After` (seconds or HTTP date,
+    capped at 1 h), rejected with a sanitised vendor code (bodies are never copied), unknown device,
+    reconnect-needed; `ToSendResult`/`ToPollFailed`.
+  - OAuth 2.0 tokens encrypted with Data Protection, cached, refreshed 60 s before expiry, once per
+    account at a time; a rotated refresh token is stored compare-and-set before use; `invalid_grant`
+    re-reads the store before marking the account reconnect-needed. Tokens and secrets are never logged.
+  - Accounts seeded from configuration without overwriting rotated tokens; a reconnect-needed account
+    is linked again by the next start.
+  - `VendorUnits` (kW→W, kWh→Wh, UTC-only timestamps), `ProviderPollingSettings`, and a
+    `CheapHours.Providers` meter tagged with provider and outcome only.
+  - Options validated at startup; errors name the key and never contain a value.
+- **Shared provider contract suite (`Providers.Kit.Testing`):** `ProviderContractTests<TProvider>` with a
+  harness per provider and `WireMockVendorFake` (OAuth token endpoint with rotation and revocation,
+  failure and delay injection, request log). One fact per rule: normalised readings, removed devices,
+  idempotency keys, 401 refresh, revocation, 429/5xx/timeouts transient, validation rejected,
+  undeclared capabilities refused before any call, no vendor failure thrown, pure and total translation.
+  Rules that do not fit a provider's interaction style are skipped with a reason. CarCloud passes every
+  polling, OAuth and command rule; OCPP passes translation and normalisation; two deliberately broken
+  providers fail it.
+- **Car-cloud provider (`carcloud`):** polls each linked account (vehicles, then each vehicle's state):
+  `Discovered` with the battery capacity, `Connected` with make and model, status (offline when asleep),
+  readings with session energy as the meter, `DeviceRemoved` on a 404, `MalformedInput` for a timestamp
+  without an offset; 429 or an open circuit fail the whole poll, a 5xx on one vehicle skips it. Start
+  and stop pass the idempotency key; `SetPowerLimit` is refused before any call. README in the project.
+- **Car-cloud simulator (`simulators/CheapHours.Simulators.CarCloud`):** rotating OAuth tokens with
+  expiry, a per-account rate limit with `Retry-After`, vehicles whose charge rises with the clock, start
+  and stop deduplicated by `Idempotency-Key`, admin endpoints (plug in, unplug, start, revoke), in-memory
+  state; runs in-process in tests and as the compose service `car-cloud`. A conformance test runs the
+  CarCloud contract facts against it.
+- **Vendor-cloud polling (worker role):**
+  - A MongoDB lease (`locks`) picks one leader; it renews, stops its loops when the lease is lost, and
+    releases it on shutdown.
+  - One loop per polling provider with a cap on concurrent polls, a poll deadline, and the schedule stored
+    with the account (`nextPollAt`; `pausedUntil` from the vendor's `Retry-After`, so a new leader honours
+    it). A throwing provider is scheduled as a failure. Reconnect-needed accounts are skipped.
+  - Poll results go through the shared `DeviceEventRecorder` (`Host/Devices`): a discovered device joins
+    the account's owner with the poll interval as its report interval (presence on read works for
+    vehicles); readings get a message id derived from the readings (UUIDv8), so a repeated poll adds no
+    duplicate; a removal marks the device `Offline` with `removedAt` and keeps it.
+  - CarCloud is registered only when `Providers:CarCloud` exists; Data Protection uses the default key
+    location or `DataProtection:KeysPath`.
 - **Message contracts:** `Message` envelope (id, time, type, schema version, `traceparent`), seven
   messages, shared JSON options, per-replica gateway routing key `gateway.{replicaId}.commands`.
 - **Public API contract:** the ten `/v1` endpoints behind API-key auth (they answer 501 until
@@ -51,9 +101,12 @@ page is binding.
   decision (confirm, resend or fail) against the device's last observation. Property tests (FsCheck)
   cover terminal states and key uniqueness.
 - **Local environment:** `docker compose` with MongoDB 8.0 (single-node replica set, self-initialising),
-  RabbitMQ 4.2 and the Solidstudio OCPP 1.6 simulator built from a pinned commit.
-  - Local secrets live in a git-ignored `.env` (the charger password and the RabbitMQ account).
-  - The gateway's password hash and the broker connection string live in `dotnet user-secrets`.
+  RabbitMQ 4.2, the Solidstudio OCPP 1.6 simulator built from a pinned commit, and the car-cloud
+  simulator (pinned .NET images, `5090`).
+  - Local secrets live in a git-ignored `.env` (the charger password, the RabbitMQ account, the
+    car-cloud client secret and seed refresh token).
+  - The gateway's password hash, the broker connection string and the worker's `Providers:CarCloud`
+    settings live in `dotnet user-secrets`.
   - The simulator sends meter values every 15 s during a charging session started with its admin
     scripts (README "Run locally").
 - **OCPP gateway (gateway role):**
@@ -120,21 +173,22 @@ page is binding.
     (not in the OpenAPI document).
   - Contract corrections: `ReadingDto.powerW` is nullable; timestamps are typed `string`/`date-time` and
     nullable ones (`lastSeenAt`, `expiresAt`) allow null.
-- **Persistence:** `chargePoints`, `devices`, `connections`, `telemetry`, `inbox` and `apiKeys`; the
-  owner-scoped device reader and the telemetry bucket reader; index creation;
-  camelCase and enum-name conventions; `schemaVersion` on every document.
+- **Persistence:** `chargePoints`, `devices` (with `removedAt`), `connections`, `telemetry`, `inbox`,
+  `apiKeys`, `providerAccounts` (encrypted tokens with a version, reconnect mark, poll schedule; one
+  account per owner and provider) and `locks`; the owner-scoped device reader and the telemetry bucket
+  reader; index creation; camelCase and enum-name conventions; `schemaVersion` on every document.
 - **ADRs:** 001 (modular monolith), 002 (time-series telemetry), 003 (RabbitMQ), 008 (gateway command
   routing).
-- **Tests:** 851 green: unit, property, architecture, API contract, and integration tests against a
+- **Tests:** 1073 green and 11 skipped by design (contract rules that do not fit a provider): unit,
+  property, architecture, API contract, provider contract, and integration tests against a
   real MongoDB and RabbitMQ in Testcontainers, with a real gateway on Kestrel, a real worker host and
   the API role on its own database (one model-based FsCheck test checks the bucket pipeline).
   The integration tests include broker and database fault tests. `dotnet test` needs Docker running.
 
 ### Left to build
 
-- **Cloud providers:** kit resilience (per-provider `HttpClient` pipeline, token store, rate limiting with
-  `Retry-After`), shared provider contract suite, car-cloud simulator and polling provider, heat-pump
-  simulator and webhook provider, polling scheduler with a leader lock, bulkhead test, OCPP on the suite.
+- **Heat-pump cloud:** heat-pump simulator (signed webhooks, at-least-once delivery) and webhook provider
+  with the first `IWebhookVerifier`, on the contract suite.
 - **Prices and planner:** Energy-Charts price import with retries and fallback, greedy planner with
   property tests, re-planning on new prices, goal change or SoC drift, goal/plan/prices/savings
   endpoints, ADR-005.
@@ -145,6 +199,17 @@ page is binding.
 - **Delivery:** small dashboard on the public API, GitHub Actions pipeline, Helm chart, k6 load test,
   README with architecture diagram and demo.
 - **CheapHours Assistant (separate repo):** MCP server and agent host over the public API only.
+
+### Later, if the project continues (not planned; decided with the user)
+
+- **Vendor account linking:** replace seeding refresh tokens from configuration with a real one-time
+  consent. The car-cloud simulator gets the OAuth 2.0 authorization-code flow with PKCE (an authorize
+  page, `state` checks, code exchange at `/oauth/token`). CheapHours gets a "link account" endpoint that
+  redirects to it and a callback that exchanges the code and stores the refresh token through the
+  existing `IProviderAccountRepository`, which also re-links accounts marked reconnect-needed. The token
+  store, rotation, encryption and revocation handling stay as they are. This widens D3 (one seeded demo
+  owner) only for linking; our own users stay out (no identity provider, per the Project Idea page). Its
+  own change when picked up.
 
 ### Open items
 
@@ -173,8 +238,10 @@ Pinned in `Directory.Packages.props`. `Microsoft.*` 10.0.x packages match the in
 
 | Package | Version | Used by |
 |---|---|---|
+| Microsoft.AspNetCore.DataProtection.Abstractions | 10.0.12 | Providers.Kit (token encryption; the host has the full stack in its shared framework) |
 | Microsoft.AspNetCore.OpenApi | 10.0.12 | Host (API role) |
 | Microsoft.Extensions.Hosting.Abstractions | 10.0.12 | Providers.Kit |
+| Microsoft.Extensions.Http.Resilience | 10.10.0 | Providers.Kit (per-provider pipeline; brings Polly 8.4.2 and System.Threading.RateLimiting; 10.11.0 needs 10.0.13 packages) |
 | Microsoft.Extensions.Options.ConfigurationExtensions | 10.0.12 | Providers.Kit, Persistence |
 | MongoDB.Driver | 3.12.0 | Persistence (and Host through it) |
 | NJsonSchema | 11.6.1 | Providers.Ocpp (OCPP 1.6 schemas are draft-04; brings in Newtonsoft.Json) |
@@ -186,7 +253,9 @@ Pinned in `Directory.Packages.props`. `Microsoft.*` 10.0.x packages match the in
 | Testcontainers.MongoDb | 4.16.0 | IntegrationTests |
 | Testcontainers.RabbitMq | 4.16.0 | IntegrationTests |
 | TngTech.ArchUnitNET.xUnitV3 | 0.13.4 | ArchitectureTests |
+| WireMock.Net.Minimal | 2.19.0 | Providers.Kit.Testing (vendor fakes for the contract suite) |
 | xunit.v3 | 4.0.2 | all tests |
+| xunit.v3.assert, xunit.v3.extensibility.core | 4.0.2 | Providers.Kit.Testing (abstract contract tests; a library cannot reference the runner package) |
 
 Tests run on **Microsoft.Testing.Platform** (opted in via `global.json`): the .NET 10 SDK no longer
 runs xUnit v3 through VSTest, so `Microsoft.NET.Test.Sdk` and `xunit.runner.visualstudio` are not used.
@@ -213,7 +282,9 @@ dotnet test --filter-method "*Role*"           # by method name; VSTest-style --
 dotnet run --project src/CheapHours.Host -- --role api      # or gateway | worker (Development via launchSettings)
 docker compose up -d --wait                    # local MongoDB, RabbitMQ, OCPP simulator (needs .env, see README)
 dotnet run --project src/CheapHours.Host -- --role gateway --urls http://localhost:5081   # simulator connects here
-dotnet run --project src/CheapHours.Host -- --role worker      # stores telemetry from RabbitMQ
+dotnet run --project src/CheapHours.Host -- --role worker      # stores telemetry; polls the car cloud when Providers:CarCloud is set
+dotnet test --project tests/CheapHours.ContractTests             # the shared provider contract suite (no Docker needed)
+dotnet run --project simulators/CheapHours.Simulators.CarCloud -- --Simulator:ClientSecret=<s> --Simulator:Accounts:0:RefreshToken=<t> --Admin:Enabled=true   # simulator without Docker
 dotnet run --project src/CheapHours.Host -- --role api --urls http://localhost:5080   # device API (demo key: README "Run locally")
 UPDATE_SNAPSHOT=1 dotnet test --project tests/CheapHours.ApiTests   # deliberately refresh docs/api/openapi.v1.json
 openspec validate --all --strict               # check all changes and specs
@@ -226,13 +297,14 @@ openspec status --change <name>                # artifact progress
 src/CheapHours.Core                  domain types; references nothing, no I/O
 src/CheapHours.Messaging.Contracts   message records + shared JSON options; references Core only
 src/CheapHours.Planning              planner (not built yet)
-src/CheapHours.Persistence           MongoDB stores: chargePoints, devices, connections, telemetry, inbox, apiKeys; readers; index creation
+src/CheapHours.Persistence           MongoDB stores: chargePoints, devices, connections, telemetry, inbox, apiKeys, providerAccounts, locks; readers; index creation
 src/CheapHours.Messaging             RabbitMQ connection, topology, confirmed publisher, batching consumer (outbox later)
 src/CheapHours.Providers.Kit         adapter interfaces, registration, resilience
-src/CheapHours.Providers.Kit.Testing shared provider contract suite (not built yet)
+src/CheapHours.Providers.Kit.Testing shared provider contract suite, WireMock vendor fake, in-memory account store
 src/CheapHours.Providers.{Ocpp,CarCloud,HeatPumpCloud}
 src/CheapHours.Host                  single entry point: --role api | gateway | worker
-tests/                               UnitTests, ArchitectureTests, ApiTests, IntegrationTests (+ later Contract, EndToEnd)
+simulators/                          vendor stand-ins that reference no src project (CheapHours.Simulators.CarCloud)
+tests/                               UnitTests, ArchitectureTests, ApiTests, ContractTests, IntegrationTests (+ later EndToEnd)
 docker/ocpp-simulator/               pinned build of the OCPP 1.6 charge-point simulator
 docker-compose.yml, .env.example     local stack; .env is git-ignored
 docs/api/openapi.v1.json             committed public contract
@@ -296,8 +368,13 @@ public sealed record DeviceReading
 - API contract: snapshot of `/openapi/v1.json` plus behaviour tests via `WebApplicationFactory`.
 - Integration (`tests/CheapHours.IntegrationTests`): one Testcontainers MongoDB replica set per run
   (assembly fixture), a fresh database per test class or gateway host; the gateway runs on real Kestrel
-  (`WebApplicationFactory.UseKestrel`) with real `ClientWebSocket` chargers. RabbitMQ joins with
-  messaging; the provider contract suite (WireMock.Net) with the cloud providers.
+  (`WebApplicationFactory.UseKestrel`) with real `ClientWebSocket` chargers, and a RabbitMQ container per
+  run. Worker tests run real worker hosts (two for the polling leader) and the car-cloud simulator
+  in-process on Kestrel with its own `FakeTimeProvider`.
+- Contract (`tests/CheapHours.ContractTests`): each provider subclasses `ProviderContractTests<T>` with a
+  harness; HTTP providers run against `WireMockVendorFake`; inapplicable rules report as skipped with a
+  reason. The suite is proven against deliberately broken providers, and the CarCloud facts also run
+  against the real simulator.
 - Never mock our own interfaces in integration tests; use real containers or faithful fakes.
 - Failure paths first: every row of the System Design reliability table gets a test.
 

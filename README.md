@@ -41,8 +41,9 @@ dotnet run --project src/CheapHours.Host -- --role worker
 
 ## Run locally
 
-The local stack is MongoDB (a single-node replica set), RabbitMQ and an OCPP 1.6 charge-point simulator.
-The simulator connects to the gateway running on your machine.
+The local stack is MongoDB (a single-node replica set), RabbitMQ, an OCPP 1.6 charge-point simulator and
+a car-cloud simulator. The charge point connects to the gateway running on your machine; the worker polls
+the car cloud.
 
 1. **Make a charger password.** It is 20 random bytes written as 40 hex characters. Print it and its
    SHA-256:
@@ -101,14 +102,35 @@ The simulator connects to the gateway running on your machine.
    The API checks the configured keys when it starts and copies them into MongoDB (`apiKeys`); a key
    can also be added there directly, without a restart.
 
-5. **Start the stack** and wait until all three services are healthy:
+5. **Link the simulated car cloud.** Set `CARCLOUD_CLIENT_SECRET` and `CARCLOUD_SEED_REFRESH_TOKEN` in
+   `.env` (generate each like the charger password) and give the worker the same values, plus where the
+   simulator listens and whose account it is (`acct_demo`, owned by `own_demo`):
+
+   ```sh
+   dotnet user-secrets --project src/CheapHours.Host set "Providers:CarCloud:BaseAddress" http://localhost:5090/
+   dotnet user-secrets --project src/CheapHours.Host set "Providers:CarCloud:TokenEndpoint" http://localhost:5090/oauth/token
+   dotnet user-secrets --project src/CheapHours.Host set "Providers:CarCloud:ClientId" cheaphours
+   dotnet user-secrets --project src/CheapHours.Host set "Providers:CarCloud:ClientSecret" <client secret>
+   dotnet user-secrets --project src/CheapHours.Host set "Providers:CarCloud:PollInterval" 00:00:15
+   dotnet user-secrets --project src/CheapHours.Host set "Providers:CarCloud:Accounts:0:Owner" own_demo
+   dotnet user-secrets --project src/CheapHours.Host set "Providers:CarCloud:Accounts:0:ExternalAccountId" acct_demo
+   dotnet user-secrets --project src/CheapHours.Host set "Providers:CarCloud:Accounts:0:RefreshToken" <seed refresh token>
+   ```
+
+   The worker polls only when `Providers:CarCloud` exists. It stores the account on its first start;
+   from then on it keeps the refresh tokens the simulator rotates, encrypted with ASP.NET Core Data
+   Protection (keys in your user profile), and the seed is never used again. `PollInterval` defaults to
+   one minute; 15 seconds makes the demo quicker.
+
+6. **Start the stack** and wait until all four services are healthy:
 
    ```sh
    docker compose up -d --wait
    ```
 
-6. **Run the gateway, the worker and the API**, each in its own terminal. The simulator connects within
-   a few seconds, boots and reports `Available`:
+7. **Run the gateway, the worker and the API**, each in its own terminal. The charge point connects
+   within a few seconds, boots and reports `Available`; the worker logs that it holds the polling lease
+   and finds the simulated car on its first poll:
 
    ```sh
    dotnet run --project src/CheapHours.Host -- --role gateway --urls http://localhost:5081
@@ -119,7 +141,7 @@ The simulator connects to the gateway running on your machine.
    Health: `/health/live` and `/health/ready` on the gateway (MongoDB and RabbitMQ reachable) and on
    the API (MongoDB reachable, keys seeded).
 
-7. **Charge.** Start a charging session on the simulator; it then sends meter values every 15 seconds,
+8. **Charge at the wallbox.** Start a charging session on the simulator; it then sends meter values every 15 seconds,
    which the gateway publishes and the worker stores:
 
    ```sh
@@ -134,7 +156,7 @@ The simulator connects to the gateway running on your machine.
    sends that status. The stop command reports the final meter value in Wh (`METER_STOP`, 2000 when
    not set).
 
-8. **Read it through the API** with the demo key. The device list shows the charger, its status and
+9. **Read it through the API** with the demo key. The device list shows the charger, its status and
    last reading; its telemetry comes in 15-minute buckets (`from` and `to` in UTC, at most 31 days):
 
    ```sh
@@ -149,6 +171,26 @@ The simulator connects to the gateway running on your machine.
 
    A charger that stops reporting for more than three heartbeat intervals is shown as `Offline`, even
    if no gateway is left to record it.
+
+10. **Charge the car.** The device list also shows the simulated car (`Vehicle`, with
+    `batteryCapacityWh`). Plug it in and start a session through the simulator's admin endpoints, which
+    act as the car's own app; its state of charge and session energy then rise at 11 kW:
+
+    ```sh
+    curl -s -X POST http://localhost:5090/admin/vehicles/veh_1/plug-in
+    curl -s -X POST http://localhost:5090/admin/vehicles/veh_1/start
+    curl -s -H "X-Api-Key: $k" http://localhost:5080/v1/devices
+    ```
+
+    Its telemetry, read like the charger's, shows the energy and the last state of charge per 15-minute
+    bucket. `POST /admin/vehicles/veh_1/unplug` ends the session.
+
+11. **Re-link the car-cloud account.** Revoking it (`curl -s -X POST
+    http://localhost:5090/admin/accounts/acct_demo/revoke`) makes the next poll fail with `invalid_grant`:
+    the worker logs that `carcloud` account `acct_demo` needs to be linked again and stops polling it. The
+    simulator also forgets rotated tokens when it restarts, which looks the same to the worker. To link
+    the account again, restart the simulator (`docker compose restart car-cloud`), which accepts its
+    configured seed once more, then restart the worker, which gives the marked account that seed again.
 
 `docker compose down -v` stops everything and deletes the local data.
 
