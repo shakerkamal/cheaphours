@@ -112,7 +112,7 @@ public sealed class CommandTests
     public void Device_events_are_a_closed_set()
     {
         Assert.Equal(
-            ["Connected", "DeviceRemoved", "Disconnected", "MalformedInput", "ReadingReported", "StatusChanged"],
+            ["Connected", "DeviceRemoved", "Disconnected", "Discovered", "MalformedInput", "ReadingReported", "StatusChanged"],
             ClosedSubtypes(typeof(DeviceEvent)));
     }
 

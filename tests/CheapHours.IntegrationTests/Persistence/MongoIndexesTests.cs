@@ -32,6 +32,22 @@ public sealed class MongoIndexesTests(MongoFixture mongo)
     }
 
     [Fact]
+    public async Task Creates_the_provider_account_and_lock_indexes()
+    {
+        await MongoIndexes.EnsureAsync(_database, TestContext.Current.CancellationToken);
+
+        var accounts = await IndexesAsync(MongoIndexes.ProviderAccounts);
+        var ownerProvider = Assert.Single(accounts, i => i["key"].AsBsonDocument == new BsonDocument { { "ownerId", 1 }, { "providerId", 1 } });
+        Assert.True(ownerProvider.GetValue("unique", false).ToBoolean());
+        var providerAccount = Assert.Single(accounts, i => i["key"].AsBsonDocument == new BsonDocument { { "providerId", 1 }, { "externalAccountId", 1 } });
+        Assert.True(providerAccount.GetValue("unique", false).ToBoolean());
+        Assert.Single(accounts, i => i["key"].AsBsonDocument == new BsonDocument { { "providerId", 1 }, { "reconnectNeeded", 1 }, { "nextPollAt", 1 } });
+
+        var locks = await IndexesAsync(MongoIndexes.Locks);
+        Assert.Equal([new BsonDocument("_id", 1)], locks.Select(i => i["key"].AsBsonDocument));
+    }
+
+    [Fact]
     public async Task Creates_telemetry_as_an_expiring_time_series()
     {
         var ct = TestContext.Current.CancellationToken;

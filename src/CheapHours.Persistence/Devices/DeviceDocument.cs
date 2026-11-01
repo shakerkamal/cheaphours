@@ -46,6 +46,11 @@ internal sealed class DeviceDocument
     [BsonIgnoreIfNull]
     public LastReadingDocument? LastReading { get; set; }
 
+    /// <summary>Gets or sets when the vendor reported the device as removed; cleared when it is discovered again.</summary>
+    [BsonDateTimeOptions(Kind = DateTimeKind.Utc)]
+    [BsonIgnoreIfNull]
+    public DateTime? RemovedAt { get; set; }
+
     [BsonDateTimeOptions(Kind = DateTimeKind.Utc)]
     public DateTime CreatedAt { get; set; }
 

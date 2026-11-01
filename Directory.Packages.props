@@ -6,8 +6,11 @@
 
   <ItemGroup Label="Runtime">
     <!-- Pinned to the installed ASP.NET Core / .NET runtime patch (10.0.12). -->
+    <PackageVersion Include="Microsoft.AspNetCore.DataProtection.Abstractions" Version="10.0.12" />
     <PackageVersion Include="Microsoft.AspNetCore.OpenApi" Version="10.0.12" />
     <PackageVersion Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.12" />
+    <!-- 10.10.0, not 10.11.0: 10.11.0 depends on 10.0.13 packages, which would conflict with the 10.0.12 pins. -->
+    <PackageVersion Include="Microsoft.Extensions.Http.Resilience" Version="10.10.0" />
     <PackageVersion Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.12" />
     <PackageVersion Include="MongoDB.Driver" Version="3.12.0" />
     <PackageVersion Include="NJsonSchema" Version="11.6.1" />
@@ -22,6 +25,10 @@
     <PackageVersion Include="Testcontainers.MongoDb" Version="4.16.0" />
     <PackageVersion Include="Testcontainers.RabbitMq" Version="4.16.0" />
     <PackageVersion Include="TngTech.ArchUnitNET.xUnitV3" Version="0.13.4" />
+    <PackageVersion Include="WireMock.Net.Minimal" Version="2.19.0" />
     <PackageVersion Include="xunit.v3" Version="4.0.2" />
+    <!-- Kit.Testing holds abstract tests: a library cannot reference the xunit.v3 runner package. -->
+    <PackageVersion Include="xunit.v3.assert" Version="4.0.2" />
+    <PackageVersion Include="xunit.v3.extensibility.core" Version="4.0.2" />
   </ItemGroup>
 </Project>

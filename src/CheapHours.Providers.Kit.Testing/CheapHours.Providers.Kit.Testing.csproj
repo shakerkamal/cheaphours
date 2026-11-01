@@ -1,5 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
+    <!-- The shared framework, for EphemeralDataProtectionProvider in the contract suite (not a package). -->
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WireMock.Net.Minimal" />
+    <PackageReference Include="xunit.v3.assert" />
+    <PackageReference Include="xunit.v3.extensibility.core" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\CheapHours.Core\CheapHours.Core.csproj" />
     <ProjectReference Include="..\CheapHours.Providers.Kit\CheapHours.Providers.Kit.csproj" />
   </ItemGroup>

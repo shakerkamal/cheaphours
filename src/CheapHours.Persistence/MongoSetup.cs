@@ -2,7 +2,10 @@ using CheapHours.Persistence.ApiKeys;
 using CheapHours.Persistence.ChargePoints;
 using CheapHours.Persistence.Connections;
 using CheapHours.Persistence.Devices;
+using CheapHours.Persistence.Locks;
+using CheapHours.Persistence.ProviderAccounts;
 using CheapHours.Persistence.Telemetry;
+using CheapHours.Providers.Kit;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -72,6 +75,10 @@ public static class MongoSetup
         services.AddSingleton<ITelemetryReader, TelemetryReader>();
         services.AddSingleton<IStoredApiKeys, StoredApiKeys>();
         services.AddSingleton<IConnectionRegistry, ConnectionRegistry>();
+        services.AddSingleton<ProviderAccountStore>();
+        services.AddSingleton<IProviderAccountRepository>(sp => sp.GetRequiredService<ProviderAccountStore>());
+        services.AddSingleton<IPollingSchedule>(sp => sp.GetRequiredService<ProviderAccountStore>());
+        services.AddSingleton<IPollingLease, PollingLease>();
         return services;
     }
 }

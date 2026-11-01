@@ -1,6 +1,8 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace CheapHours.Providers.Kit;
 
@@ -43,6 +45,12 @@ public static class ProviderServiceCollectionExtensions
     /// <param name="services">The service collection.</param>
     /// <param name="configSection">The provider's configuration section.</param>
     /// <returns>The same service collection.</returns>
+    /// <remarks>
+    /// When <typeparamref name="TOptions"/> derives from <see cref="HttpProviderOptions"/>, the provider also gets
+    /// its own named <see cref="HttpClient"/> with the vendor resilience pipeline (the bulkhead between
+    /// providers), <see cref="ProviderHttpClient{TProvider}"/> with per-account rate limiting and metrics, and a
+    /// <see cref="ProviderPollingSettings"/> entry. The options are validated at startup without echoing values.
+    /// </remarks>
     public static IServiceCollection AddProvider<TProvider, TOptions>(this IServiceCollection services, string configSection)
         where TProvider : class, IDeviceProvider
         where TOptions : class
@@ -51,7 +59,71 @@ public static class ProviderServiceCollectionExtensions
         ArgumentException.ThrowIfNullOrWhiteSpace(configSection);
 
         services.AddOptions<TOptions>().BindConfiguration(configSection).ValidateOnStart();
+        if (typeof(HttpProviderOptions).IsAssignableFrom(typeof(TOptions)))
+        {
+            AddHttp<TProvider, TOptions>(services, configSection);
+        }
+
         return services.AddProvider<TProvider>(configSection);
+    }
+
+    private static void AddHttp<TProvider, TOptions>(IServiceCollection services, string configSection)
+        where TProvider : class, IDeviceProvider
+        where TOptions : class
+    {
+        static HttpProviderOptions Options(IServiceProvider sp) => (HttpProviderOptions)(object)sp.GetRequiredService<IOptions<TOptions>>().Value;
+
+        services.AddSingleton<IValidateOptions<TOptions>>(new HttpProviderOptionsValidator<TOptions>(configSection));
+        services.AddMetrics();
+        services.TryAddSingleton(TimeProvider.System);
+        services.TryAddSingleton<ProviderMetrics>();
+        services.TryAddSingleton<AccountRateLimiter>();
+
+        services.AddHttpClient(typeof(TProvider).FullName!, (sp, client) =>
+            {
+                client.BaseAddress = Options(sp).BaseAddress;
+                client.Timeout = Timeout.InfiniteTimeSpan; // the pipeline's timeouts govern
+            })
+            .AddResilienceHandler("vendor", (pipeline, context) => VendorPipeline.Configure(pipeline, Options(context.ServiceProvider).Http));
+
+        var isOAuth = typeof(OAuthProviderOptions).IsAssignableFrom(typeof(TOptions));
+        var tokenClientName = typeof(TProvider).FullName + ".token";
+        if (isOAuth)
+        {
+            // Token refreshes get their own client: a timeout, no retry and no breaker.
+            services.AddHttpClient(tokenClientName, (sp, client) => client.Timeout = Options(sp).Http.TotalTimeout);
+            services.TryAddSingleton<TokenProtector>();
+            services.AddSingleton(new OAuthRegistration(typeof(TProvider), sp => (OAuthProviderOptions)Options(sp)));
+            services.TryAddSingleton(sp => new ProviderAccountSeeder(
+                sp.GetServices<OAuthRegistration>(),
+                sp,
+                sp.GetRequiredService<IProviderAccountRepository>(),
+                sp.GetRequiredService<TokenProtector>(),
+                sp.GetRequiredService<ILogger<ProviderAccountSeeder>>()));
+        }
+
+        services.TryAddSingleton(sp => new ProviderHttpClient<TProvider>(
+            sp.GetRequiredService<IHttpClientFactory>(),
+            Options(sp),
+            sp.GetRequiredService<AccountRateLimiter>(),
+            sp.GetRequiredService<ProviderMetrics>(),
+            sp.GetRequiredService<TimeProvider>(),
+            isOAuth
+                ? new OAuthTokenStore(
+                    (OAuthProviderOptions)Options(sp),
+                    tokenClientName,
+                    sp.GetRequiredService<IHttpClientFactory>(),
+                    sp.GetRequiredService<IProviderAccountRepository>(),
+                    sp.GetRequiredService<TokenProtector>(),
+                    sp.GetRequiredService<TimeProvider>(),
+                    sp.GetRequiredService<ILogger<OAuthTokenStore>>())
+                : null));
+
+        services.AddSingleton(sp =>
+        {
+            var options = Options(sp);
+            return new ProviderPollingSettings(typeof(TProvider), options.PollInterval, options.Http.TotalTimeout);
+        });
     }
 
     private static void AddAs<TProvider, TInterface>(IServiceCollection services)

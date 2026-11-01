@@ -66,6 +66,36 @@ public abstract record DeviceEvent
         public DeviceHardware? Hardware { get; }
     }
 
+    /// <summary>
+    /// A provider found the device at its vendor (for example in a vendor cloud's device list). It carries
+    /// what is needed to create the device: its type and the attributes that type requires.
+    /// </summary>
+    public sealed record Discovered : DeviceEvent
+    {
+        /// <summary>Creates the event.</summary>
+        /// <param name="externalId">The vendor's id for the device.</param>
+        /// <param name="at">When it was found (UTC).</param>
+        /// <param name="type">What kind of appliance it is.</param>
+        /// <param name="attributes">Its attributes; a vehicle needs a battery capacity and a charger a maximum power.</param>
+        /// <exception cref="ArgumentException">A value is blank or not UTC, or a required attribute is missing.</exception>
+        public Discovered(string externalId, DateTimeOffset at, DeviceType type, DeviceAttributes attributes)
+            : base(at)
+        {
+            ExternalId = Guard.NotBlank(externalId);
+            Type = type;
+            Attributes = DeviceAttributeRules.Require(type, attributes, nameof(attributes));
+        }
+
+        /// <summary>Gets the vendor's id for the device.</summary>
+        public string ExternalId { get; }
+
+        /// <summary>Gets the kind of appliance.</summary>
+        public DeviceType Type { get; }
+
+        /// <summary>Gets the device's attributes.</summary>
+        public DeviceAttributes Attributes { get; }
+    }
+
     /// <summary>The device disconnected or stopped answering.</summary>
     public sealed record Disconnected : DeviceEvent
     {

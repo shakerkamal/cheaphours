@@ -24,6 +24,12 @@ public static class MongoIndexes
     /// <summary>API keys, stored by hash.</summary>
     public const string ApiKeys = "apiKeys";
 
+    /// <summary>Owners' links to vendor clouds: encrypted tokens and the poll schedule.</summary>
+    public const string ProviderAccounts = "providerAccounts";
+
+    /// <summary>Leases, such as the polling leader's.</summary>
+    public const string Locks = "locks";
+
     /// <summary>How long readings are kept.</summary>
     public static readonly TimeSpan TelemetryRetention = TimeSpan.FromDays(30);
 
@@ -46,6 +52,19 @@ public static class MongoIndexes
 
         // apiKeys is looked up by _id (the key hash) only.
         await EnsureCollectionAsync(database, ApiKeys, cancellationToken).ConfigureAwait(false);
+
+        // locks holds one document per lease, looked up by _id only.
+        await EnsureCollectionAsync(database, Locks, cancellationToken).ConfigureAwait(false);
+
+        await database.GetCollection<BsonDocument>(ProviderAccounts).Indexes.CreateManyAsync(
+            [
+                // D3: one link per owner and provider; one account per vendor account id.
+                new CreateIndexModel<BsonDocument>(keys.Ascending("ownerId").Ascending("providerId"), new CreateIndexOptions { Name = "ownerId_providerId", Unique = true }),
+                new CreateIndexModel<BsonDocument>(keys.Ascending("providerId").Ascending("externalAccountId"), new CreateIndexOptions { Name = "providerId_externalAccountId", Unique = true }),
+                // Serves the polling loop's due listing.
+                new CreateIndexModel<BsonDocument>(keys.Ascending("providerId").Ascending("reconnectNeeded").Ascending("nextPollAt"), new CreateIndexOptions { Name = "providerId_reconnectNeeded_nextPollAt" }),
+            ],
+            cancellationToken).ConfigureAwait(false);
 
         await database.GetCollection<BsonDocument>(Devices).Indexes.CreateManyAsync(
             [

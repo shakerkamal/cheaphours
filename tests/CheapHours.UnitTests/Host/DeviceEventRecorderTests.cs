@@ -144,6 +144,8 @@ public sealed class DeviceEventRecorderTests
 
         public Task<bool> MarkOfflineAsync(string providerId, string externalId, DateTimeOffset at, CancellationToken cancellationToken) => throw new NotSupportedException();
 
+        public Task<bool> MarkRemovedAsync(string providerId, string externalId, DateTimeOffset at, CancellationToken cancellationToken) => Task.FromResult(true);
+
         public Task RecordSeenAsync(string providerId, string externalId, DateTimeOffset at, CancellationToken cancellationToken) => throw new NotSupportedException();
 
         public Task<Device?> FindAsync(string providerId, string externalId, CancellationToken cancellationToken) => throw new NotSupportedException();

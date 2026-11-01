@@ -43,7 +43,8 @@ public sealed class DeviceStateStore(IMongoDatabase database) : IDeviceStateStor
         }
 
         // Set on every connection, not only on insert: a changed interval applies from the next connection.
-        await _collection.UpdateOneAsync(filter, Update.Set(d => d.ReportIntervalSeconds, intervalSeconds), cancellationToken: cancellationToken).ConfigureAwait(false);
+        // A device seen again is no longer removed.
+        await _collection.UpdateOneAsync(filter, Update.Set(d => d.ReportIntervalSeconds, intervalSeconds).Unset(d => d.RemovedAt), cancellationToken: cancellationToken).ConfigureAwait(false);
 
         // A charger that connects is no longer offline, even before it reports a status.
         await _collection.UpdateOneAsync(
@@ -92,6 +93,14 @@ public sealed class DeviceStateStore(IMongoDatabase database) : IDeviceStateStor
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
         return result.ModifiedCount > 0;
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> MarkRemovedAsync(string providerId, string externalId, DateTimeOffset at, CancellationToken cancellationToken)
+    {
+        var when = UtcTime.ToBson(at);
+        await _collection.UpdateOneAsync(Key(providerId, externalId), Update.Set(d => d.RemovedAt, when), cancellationToken: cancellationToken).ConfigureAwait(false);
+        return await MarkOfflineAsync(providerId, externalId, at, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>

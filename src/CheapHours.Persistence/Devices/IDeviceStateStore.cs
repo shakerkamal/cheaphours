@@ -52,6 +52,18 @@ public interface IDeviceStateStore
     /// <returns><see langword="true"/> when the status changed.</returns>
     Task<bool> MarkOfflineAsync(string providerId, string externalId, DateTimeOffset at, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Records that the vendor reported the device as removed: sets <c>removedAt</c> and marks the device
+    /// <see cref="DeviceStatus.Offline"/> if <paramref name="at"/> is later than its current status time. The
+    /// device and its telemetry are kept; <see cref="EnsureAsync"/> clears the mark when it is discovered again.
+    /// </summary>
+    /// <param name="providerId">The provider id.</param>
+    /// <param name="externalId">The vendor's id.</param>
+    /// <param name="at">When the removal was observed (UTC).</param>
+    /// <param name="cancellationToken">Cancels the operation.</param>
+    /// <returns><see langword="true"/> when the status changed to offline.</returns>
+    Task<bool> MarkRemovedAsync(string providerId, string externalId, DateTimeOffset at, CancellationToken cancellationToken);
+
     /// <summary>Moves <c>lastSeenAt</c> to <paramref name="at"/> if that is later; never backwards.</summary>
     /// <param name="providerId">The provider id.</param>
     /// <param name="externalId">The vendor's id.</param>

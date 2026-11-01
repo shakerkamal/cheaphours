@@ -23,15 +23,7 @@ public sealed record Device
             throw new ArgumentException($"'{providerId}' is not a valid provider id (1–{ProviderIdFormat.MaxLength} lowercase letters or digits).", nameof(providerId));
         }
 
-        if (type == DeviceType.Charger && attributes.MaxPowerW is null)
-        {
-            throw new ArgumentException("A charger must have a maximum power.", nameof(attributes));
-        }
-
-        if (type == DeviceType.Vehicle && attributes.BatteryCapacityWh is null)
-        {
-            throw new ArgumentException("A vehicle must have a battery capacity.", nameof(attributes));
-        }
+        DeviceAttributeRules.Require(type, attributes, nameof(attributes));
 
         if (state?.LastReading is { } reading && reading.ExternalId != externalId)
         {

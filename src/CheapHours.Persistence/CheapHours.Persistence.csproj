@@ -1,6 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
     <ProjectReference Include="..\CheapHours.Core\CheapHours.Core.csproj" />
+    <!-- For IProviderAccountRepository: Persistence stores provider accounts; Kit never references Persistence. -->
+    <ProjectReference Include="..\CheapHours.Providers.Kit\CheapHours.Providers.Kit.csproj" />
   </ItemGroup>
 
   <ItemGroup>

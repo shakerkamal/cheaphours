@@ -28,6 +28,53 @@ public sealed class DeviceStateStoreTests(MongoFixture mongo) : IAsyncLifetime
         _database.GetCollection<BsonDocument>(MongoIndexes.Devices).UpdateOneAsync(
             new BsonDocument("externalId", externalId), new BsonDocument("$set", fields), cancellationToken: TestContext.Current.CancellationToken);
 
+    private Task<BsonDocument> RawAsync(string externalId) =>
+        _database.GetCollection<BsonDocument>(MongoIndexes.Devices).Find(new BsonDocument("externalId", externalId)).SingleAsync(TestContext.Current.CancellationToken);
+
+    [Fact]
+    public async Task Removal_marks_the_device_offline_and_keeps_it()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await Store.EnsureAsync(Charger("CP-RM1"), Interval, T0, ct);
+        await Store.RecordStatusAsync(Provider, "CP-RM1", DeviceStatus.Charging, T0.AddSeconds(10), ct);
+
+        Assert.True(await Store.MarkRemovedAsync(Provider, "CP-RM1", T0.AddMinutes(1), ct));
+
+        var device = await Store.FindAsync(Provider, "CP-RM1", ct);
+        Assert.Equal(DeviceStatus.Offline, device!.Status);
+        Assert.Equal(T0.AddMinutes(1), device.State!.StatusAt);
+        Assert.Equal(T0.AddMinutes(1).UtcDateTime, (await RawAsync("CP-RM1"))["removedAt"].ToUniversalTime());
+    }
+
+    [Fact]
+    public async Task Removal_older_than_the_status_keeps_the_status_but_records_the_removal()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await Store.EnsureAsync(Charger("CP-RM2"), Interval, T0, ct);
+        await Store.RecordStatusAsync(Provider, "CP-RM2", DeviceStatus.Charging, T0.AddMinutes(5), ct);
+
+        Assert.False(await Store.MarkRemovedAsync(Provider, "CP-RM2", T0.AddMinutes(1), ct));
+
+        Assert.Equal(DeviceStatus.Charging, (await Store.FindAsync(Provider, "CP-RM2", ct))!.Status);
+        Assert.Equal(T0.AddMinutes(1).UtcDateTime, (await RawAsync("CP-RM2"))["removedAt"].ToUniversalTime());
+    }
+
+    [Fact]
+    public async Task Rediscovery_clears_the_removal_and_the_status_follows_the_vendor_again()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var device = Charger("CP-RM3");
+        var id = await Store.EnsureAsync(device, Interval, T0, ct);
+        await Store.MarkRemovedAsync(Provider, "CP-RM3", T0.AddMinutes(1), ct);
+
+        var again = await Store.EnsureAsync(Charger("CP-RM3"), Interval, T0.AddMinutes(2), ct);
+        await Store.RecordStatusAsync(Provider, "CP-RM3", DeviceStatus.Available, T0.AddMinutes(2), ct);
+
+        Assert.Equal(id, again);
+        Assert.False((await RawAsync("CP-RM3")).Contains("removedAt"));
+        Assert.Equal(DeviceStatus.Available, (await Store.FindAsync(Provider, "CP-RM3", ct))!.Status);
+    }
+
     private Device Charger(string externalId) =>
         new(DeviceId.New(_time), Owner, Provider, externalId, DeviceType.Charger,
             Capabilities.ReadTelemetry | Capabilities.StartStop | Capabilities.SetPowerLimit, new DeviceAttributes(maxPowerW: 11000));
