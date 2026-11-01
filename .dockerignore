@@ -1,0 +1,10 @@
+# Keeps image build contexts small and secrets out of them.
+**/bin/
+**/obj/
+.git/
+.idea/
+.vs/
+.env
+TestResults/
+openspec/
+docs/plan.md

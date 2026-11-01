@@ -39,6 +39,6 @@ dotnet_naming_symbols.interfaces.applicable_kinds = interface
 dotnet_naming_style.prefix_i.capitalization = pascal_case
 dotnet_naming_style.prefix_i.required_prefix = I
 
-# Test method names use underscores (Method_Condition_Result).
-[tests/**.cs]
+# Test method names use underscores (Method_Condition_Result), also in the shared contract suite.
+[{tests/**.cs,src/CheapHours.Providers.Kit.Testing/**.cs}]
 dotnet_diagnostic.CA1707.severity = none

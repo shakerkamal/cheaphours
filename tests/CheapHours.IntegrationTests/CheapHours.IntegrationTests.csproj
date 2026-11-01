@@ -13,5 +13,6 @@
     <ProjectReference Include="..\..\src\CheapHours.Messaging\CheapHours.Messaging.csproj" />
     <ProjectReference Include="..\..\src\CheapHours.Persistence\CheapHours.Persistence.csproj" />
     <ProjectReference Include="..\..\src\CheapHours.Providers.Ocpp\CheapHours.Providers.Ocpp.csproj" />
+    <ProjectReference Include="..\..\simulators\CheapHours.Simulators.CarCloud\CheapHours.Simulators.CarCloud.csproj" />
   </ItemGroup>
 </Project>

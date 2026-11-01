@@ -1,5 +1,6 @@
-# Local development stack: MongoDB (single-node replica set), RabbitMQ and an OCPP 1.6 charge-point
-# simulator that connects to the gateway running on this machine (dotnet run ... --role gateway).
+# Local development stack: MongoDB (single-node replica set), RabbitMQ, an OCPP 1.6 charge-point
+# simulator that connects to the gateway running on this machine (dotnet run ... --role gateway), and a
+# car-cloud simulator that the worker polls (dotnet run ... --role worker).
 # Copy .env.example to .env first; see README "Run locally".
 name: cheaphours
 
@@ -61,6 +62,29 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+      start_interval: 2s
+
+  car-cloud:
+    # The car maker's cloud the worker polls (simulators/CheapHours.Simulators.CarCloud).
+    build:
+      context: .
+      dockerfile: simulators/CheapHours.Simulators.CarCloud/Dockerfile
+    image: cheaphours/car-cloud-simulator:local
+    environment:
+      # Admin endpoints plug the demo vehicle in or out and revoke the account; see README "Run locally".
+      Admin__Enabled: "true"
+      Simulator__ClientSecret: ${CARCLOUD_CLIENT_SECRET:?set CARCLOUD_CLIENT_SECRET in .env}
+      Simulator__Accounts__0__Id: acct_demo
+      Simulator__Accounts__0__RefreshToken: ${CARCLOUD_SEED_REFRESH_TOKEN:?set CARCLOUD_SEED_REFRESH_TOKEN in .env}
+    ports:
+      - "5090:8080"
+    healthcheck:
+      # The ASP.NET image has no curl: a plain HTTP request over bash's /dev/tcp.
+      test: ["CMD", "bash", "-c", 'exec 3<>/dev/tcp/127.0.0.1/8080 && printf "GET /health HTTP/1.0\r\n\r\n" >&3 && grep -q " 200 " <&3']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
       start_interval: 2s
 
 volumes:

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\CheapHours.Providers.Kit.Testing\CheapHours.Providers.Kit.Testing.csproj" />
+    <ProjectReference Include="..\..\src\CheapHours.Providers.CarCloud\CheapHours.Providers.CarCloud.csproj" />
+    <ProjectReference Include="..\..\src\CheapHours.Providers.Ocpp\CheapHours.Providers.Ocpp.csproj" />
+    <!-- The conformance tests run the CarCloud facts against the real simulator. -->
+    <ProjectReference Include="..\..\simulators\CheapHours.Simulators.CarCloud\CheapHours.Simulators.CarCloud.csproj" />
+  </ItemGroup>
+</Project>

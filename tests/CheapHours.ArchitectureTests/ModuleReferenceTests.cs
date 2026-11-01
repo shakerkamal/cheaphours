@@ -26,6 +26,30 @@ public sealed class ModuleReferenceTests
     }
 
     [Fact]
+    public void Simulators_stand_alone()
+    {
+        Assert.NotEmpty(RepoLayout.SimulatorProjects);
+        var src = Path.GetFullPath(Path.Combine(RepoLayout.RepoRoot, "src")) + Path.DirectorySeparatorChar;
+
+        var offenders = RepoLayout.SimulatorProjects
+            .SelectMany(simulator => RepoLayout.ResolvedProjectReferencesOf(simulator)
+                .Where(reference => reference.StartsWith(src, StringComparison.OrdinalIgnoreCase))
+                .Select(reference => $"{Path.GetFileNameWithoutExtension(simulator)} references {Path.GetFileNameWithoutExtension(reference)}"))
+            .ToArray();
+
+        Assert.True(offenders.Length == 0,
+            "A simulator behaves like an outside vendor and must not reference a project under src/:\n" + string.Join('\n', offenders));
+    }
+
+    [Fact]
+    public void Every_simulator_is_built_with_the_solution()
+    {
+        var missing = RepoLayout.SimulatorProjects.Except(RepoLayout.SolutionProjects, StringComparer.Ordinal).ToArray();
+
+        Assert.True(missing.Length == 0, "Simulators missing from CheapHours.slnx: " + string.Join(", ", missing));
+    }
+
+    [Fact]
     public void Message_contracts_reference_only_core()
     {
         Assert.Equal(["Core"], RepoLayout.ProjectReferencesOf("Messaging.Contracts"));

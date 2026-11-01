@@ -53,6 +53,37 @@ internal static class RepoLayout
     /// <summary>Package ids the given module's project file references.</summary>
     public static IReadOnlyList<string> PackageReferencesOf(string module) => ItemIncludes(module, "PackageReference");
 
+    /// <summary>Project files of every simulator under <c>simulators/</c>, relative to the repository root with forward slashes.</summary>
+    public static IReadOnlyList<string> SimulatorProjects { get; } =
+        Directory.Exists(Path.Combine(RepoRoot, "simulators"))
+            ? Directory.GetFiles(Path.Combine(RepoRoot, "simulators"), "*.csproj", SearchOption.AllDirectories)
+                .Select(p => Path.GetRelativePath(RepoRoot, p).Replace('\\', '/'))
+                .Order(StringComparer.Ordinal)
+                .ToArray()
+            : [];
+
+    /// <summary>Full paths of the projects that the given project file (relative to the repository root) references.</summary>
+    public static IReadOnlyList<string> ResolvedProjectReferencesOf(string projectFile)
+    {
+        var path = Path.Combine(RepoRoot, projectFile);
+        var directory = Path.GetDirectoryName(path)!;
+        return XDocument.Load(path)
+            .Descendants("ProjectReference")
+            .Select(e => (string?)e.Attribute("Include"))
+            .OfType<string>()
+            .Select(include => Path.GetFullPath(Path.Combine(directory, include.Replace('\\', Path.DirectorySeparatorChar))))
+            .ToArray();
+    }
+
+    /// <summary>Project paths listed in <c>CheapHours.slnx</c>, with forward slashes.</summary>
+    public static IReadOnlyList<string> SolutionProjects { get; } =
+        XDocument.Load(Path.Combine(RepoRoot, "CheapHours.slnx"))
+            .Descendants("Project")
+            .Select(e => (string?)e.Attribute("Path"))
+            .OfType<string>()
+            .Select(p => p.Replace('\\', '/'))
+            .ToArray();
+
     private static string[] ItemIncludes(string module, string itemName)
     {
         var path = Path.Combine(RepoRoot, "src", Prefix + module, Prefix + module + ".csproj");

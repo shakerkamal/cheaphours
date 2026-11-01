@@ -12,9 +12,13 @@
     <Project Path="src/CheapHours.Providers.Kit/CheapHours.Providers.Kit.csproj" />
     <Project Path="src/CheapHours.Providers.Ocpp/CheapHours.Providers.Ocpp.csproj" />
   </Folder>
+  <Folder Name="/simulators/">
+    <Project Path="simulators/CheapHours.Simulators.CarCloud/CheapHours.Simulators.CarCloud.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/CheapHours.ApiTests/CheapHours.ApiTests.csproj" />
     <Project Path="tests/CheapHours.ArchitectureTests/CheapHours.ArchitectureTests.csproj" />
+    <Project Path="tests/CheapHours.ContractTests/CheapHours.ContractTests.csproj" />
     <Project Path="tests/CheapHours.IntegrationTests/CheapHours.IntegrationTests.csproj" />
     <Project Path="tests/CheapHours.UnitTests/CheapHours.UnitTests.csproj" />
   </Folder>
