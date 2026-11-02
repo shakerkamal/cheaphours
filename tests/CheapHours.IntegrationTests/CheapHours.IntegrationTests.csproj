@@ -16,5 +16,6 @@
     <ProjectReference Include="..\..\src\CheapHours.Providers.CarCloud\CheapHours.Providers.CarCloud.csproj" />
     <ProjectReference Include="..\..\src\CheapHours.Providers.Kit.Testing\CheapHours.Providers.Kit.Testing.csproj" />
     <ProjectReference Include="..\..\simulators\CheapHours.Simulators.CarCloud\CheapHours.Simulators.CarCloud.csproj" />
+    <ProjectReference Include="..\..\simulators\CheapHours.Simulators.HeatPumpCloud\CheapHours.Simulators.HeatPumpCloud.csproj" />
   </ItemGroup>
 </Project>

@@ -1,0 +1,3 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!-- Stands alone like an outside vendor: no reference to any project under src/ (architecture test). -->
+</Project>

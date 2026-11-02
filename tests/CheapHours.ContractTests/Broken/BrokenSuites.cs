@@ -1,3 +1,5 @@
+using CheapHours.ContractTests.HeatPumpCloud;
+using CheapHours.Providers.HeatPumpCloud;
 using CheapHours.Providers.Kit;
 using CheapHours.Providers.Kit.Testing;
 
@@ -15,4 +17,11 @@ internal sealed class SendsUndeclaredCapabilitySuite : ProviderContractTests<Sen
 {
     protected override IProviderContractHarness CreateHarness() =>
         new BrokenCloudHarness<SendsUndeclaredCapabilityProvider>(s => s.AddProvider<SendsUndeclaredCapabilityProvider, BrokenCloudOptions>("Providers:Broken"));
+}
+
+/// <summary>The suite against <see cref="AcceptsEverythingVerifierProvider"/>; internal, so the runner does not discover it.</summary>
+internal sealed class AcceptsEverythingVerifierSuite : ProviderContractTests<AcceptsEverythingVerifierProvider>
+{
+    protected override IProviderContractHarness CreateHarness() =>
+        new HeatPumpCloudHarness(s => s.AddProvider<AcceptsEverythingVerifierProvider, HeatPumpCloudOptions>(HeatPumpCloudOptions.SectionName));
 }

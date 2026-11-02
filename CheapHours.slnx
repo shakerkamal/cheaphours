@@ -14,6 +14,7 @@
   </Folder>
   <Folder Name="/simulators/">
     <Project Path="simulators/CheapHours.Simulators.CarCloud/CheapHours.Simulators.CarCloud.csproj" />
+    <Project Path="simulators/CheapHours.Simulators.HeatPumpCloud/CheapHours.Simulators.HeatPumpCloud.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/CheapHours.ApiTests/CheapHours.ApiTests.csproj" />

@@ -7,7 +7,10 @@
     <ProjectReference Include="..\..\src\CheapHours.Providers.Kit.Testing\CheapHours.Providers.Kit.Testing.csproj" />
     <ProjectReference Include="..\..\src\CheapHours.Providers.CarCloud\CheapHours.Providers.CarCloud.csproj" />
     <ProjectReference Include="..\..\src\CheapHours.Providers.Ocpp\CheapHours.Providers.Ocpp.csproj" />
+    <ProjectReference Include="..\..\src\CheapHours.Providers.HeatPumpCloud\CheapHours.Providers.HeatPumpCloud.csproj" />
     <!-- The conformance tests run the CarCloud facts against the real simulator. -->
     <ProjectReference Include="..\..\simulators\CheapHours.Simulators.CarCloud\CheapHours.Simulators.CarCloud.csproj" />
+    <!-- The conformance tests check that the provider verifies and translates what the real simulator sends. -->
+    <ProjectReference Include="..\..\simulators\CheapHours.Simulators.HeatPumpCloud\CheapHours.Simulators.HeatPumpCloud.csproj" />
   </ItemGroup>
 </Project>

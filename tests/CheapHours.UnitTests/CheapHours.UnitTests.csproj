@@ -13,5 +13,6 @@
     <ProjectReference Include="..\..\src\CheapHours.Host\CheapHours.Host.csproj" />
     <ProjectReference Include="..\..\src\CheapHours.Providers.Ocpp\CheapHours.Providers.Ocpp.csproj" />
     <ProjectReference Include="..\..\src\CheapHours.Providers.CarCloud\CheapHours.Providers.CarCloud.csproj" />
+    <ProjectReference Include="..\..\src\CheapHours.Providers.HeatPumpCloud\CheapHours.Providers.HeatPumpCloud.csproj" />
   </ItemGroup>
 </Project>
