@@ -41,9 +41,9 @@ dotnet run --project src/CheapHours.Host -- --role worker
 
 ## Run locally
 
-The local stack is MongoDB (a single-node replica set), RabbitMQ, an OCPP 1.6 charge-point simulator and
-a car-cloud simulator. The charge point connects to the gateway running on your machine; the worker polls
-the car cloud.
+The local stack is MongoDB (a single-node replica set), RabbitMQ, an OCPP 1.6 charge-point simulator, a
+car-cloud simulator and a heat-pump-cloud simulator. The charge point connects to the gateway running on
+your machine, the worker polls the car cloud, and the heat-pump cloud posts signed webhooks to the gateway.
 
 1. **Make a charger password.** It is 20 random bytes written as 40 hex characters. Print it and its
    SHA-256:
@@ -122,15 +122,30 @@ the car cloud.
    Protection (keys in your user profile), and the seed is never used again. `PollInterval` defaults to
    one minute; 15 seconds makes the demo quicker.
 
-6. **Start the stack** and wait until all four services are healthy:
+6. **Link the simulated heat-pump cloud.** Set `HEATPUMP_SIGNING_SECRET` in `.env` (at least 32
+   characters: `openssl rand -hex 32`, or the charger-password command with 32 bytes) and give the gateway
+   the same secret, plus the account the simulator posts for (`acct_demo`, owned by `own_demo`):
+
+   ```sh
+   dotnet user-secrets --project src/CheapHours.Host set "Providers:HeatPumpCloud:SigningSecret" <secret>
+   dotnet user-secrets --project src/CheapHours.Host set "Providers:HeatPumpCloud:ExpectedReportInterval" 00:00:15
+   dotnet user-secrets --project src/CheapHours.Host set "Providers:HeatPumpCloud:Accounts:0:Owner" own_demo
+   dotnet user-secrets --project src/CheapHours.Host set "Providers:HeatPumpCloud:Accounts:0:ExternalAccountId" acct_demo
+   ```
+
+   The gateway accepts heat-pump webhooks only when `Providers:HeatPumpCloud` exists. The simulator
+   posts to `http://host.docker.internal:5081/webhooks/heatpumpcloud/acct_demo` every 15 seconds, so
+   the report interval matches; it defaults to one minute.
+
+7. **Start the stack** and wait until all five services are healthy:
 
    ```sh
    docker compose up -d --wait
    ```
 
-7. **Run the gateway, the worker and the API**, each in its own terminal. The charge point connects
+8. **Run the gateway, the worker and the API**, each in its own terminal. The charge point connects
    within a few seconds, boots and reports `Available`; the worker logs that it holds the polling lease
-   and finds the simulated car on its first poll:
+   and finds the simulated car on its first poll; the gateway logs each accepted heat-pump webhook:
 
    ```sh
    dotnet run --project src/CheapHours.Host -- --role gateway --urls http://localhost:5081
@@ -141,7 +156,7 @@ the car cloud.
    Health: `/health/live` and `/health/ready` on the gateway (MongoDB and RabbitMQ reachable) and on
    the API (MongoDB reachable, keys seeded).
 
-8. **Charge at the wallbox.** Start a charging session on the simulator; it then sends meter values every 15 seconds,
+9. **Charge at the wallbox.** Start a charging session on the simulator; it then sends meter values every 15 seconds,
    which the gateway publishes and the worker stores:
 
    ```sh
@@ -156,7 +171,7 @@ the car cloud.
    sends that status. The stop command reports the final meter value in Wh (`METER_STOP`, 2000 when
    not set).
 
-9. **Read it through the API** with the demo key. The device list shows the charger, its status and
+10. **Read it through the API** with the demo key. The device list shows the charger, its status and
    last reading; its telemetry comes in 15-minute buckets (`from` and `to` in UTC, at most 31 days):
 
    ```sh
@@ -172,7 +187,7 @@ the car cloud.
    A charger that stops reporting for more than three heartbeat intervals is shown as `Offline`, even
    if no gateway is left to record it.
 
-10. **Charge the car.** The device list also shows the simulated car (`Vehicle`, with
+11. **Charge the car.** The device list also shows the simulated car (`Vehicle`, with
     `batteryCapacityWh`). Plug it in and start a session through the simulator's admin endpoints, which
     act as the car's own app; its state of charge and session energy then rise at 11 kW:
 
@@ -185,7 +200,39 @@ the car cloud.
     Its telemetry, read like the charger's, shows the energy and the last state of charge per 15-minute
     bucket. `POST /admin/vehicles/veh_1/unplug` ends the session.
 
-11. **Re-link the car-cloud account.** Revoking it (`curl -s -X POST
+12. **Watch the heat pump.** The device list also shows the simulated heat pump (`HeatPump`, made by
+    Kaltwerk), heating at 3 kW; its telemetry, read like the charger's, shows the energy per 15-minute
+    bucket from its lifetime meter. The simulator's admin endpoints change its mode (`Heating`,
+    `HotWater`, `Defrost`, `Standby`, `Fault`), list recent deliveries, and redeliver its last event:
+
+    ```sh
+    curl -s -X POST http://localhost:5091/admin/heat-pumps/hp_1/mode/Standby
+    curl -s http://localhost:5091/admin/deliveries
+    curl -s -X POST http://localhost:5091/admin/heat-pumps/hp_1/redeliver
+    docker compose exec mongo mongosh cheaphours --quiet --eval 'db.telemetry.aggregate([{$match: {"meta.providerId": "heatpumpcloud"}}, {$group: {_id: "$ts", n: {$sum: 1}}}, {$match: {n: {$gt: 1}}}]).toArray()'
+    ```
+
+    The redelivery is signed again but has the same body, so its reading has the same time and its
+    telemetry message the same id: the gateway answers `202`, and the worker's inbox drops the duplicate.
+    The last command lists heat-pump readings stored twice for one time, and prints `[]`.
+
+    A webhook with a wrong signature is refused with `401` before its body is read:
+
+    ```sh
+    curl -s -o /dev/null -w "%{http_code}\n" -X POST http://localhost:5081/webhooks/heatpumpcloud/acct_demo \
+      -H "Content-Type: application/json" \
+      -H "HeatPump-Signature: t=$(date +%s),v1=0000000000000000000000000000000000000000000000000000000000000000" \
+      -d '{}'
+    ```
+
+    ```powershell
+    curl.exe -s -o NUL -w "%{http_code}\n" -X POST http://localhost:5081/webhooks/heatpumpcloud/acct_demo -H "Content-Type: application/json" -H "HeatPump-Signature: t=$([DateTimeOffset]::UtcNow.ToUnixTimeSeconds()),v1=$('0' * 64)" -d '{}'
+    ```
+
+    `POST /admin/heat-pumps/hp_1/remove` sends `device.deleted`: the heat pump is shown `Offline` and
+    kept with its telemetry.
+
+13. **Re-link the car-cloud account.** Revoking it (`curl -s -X POST
     http://localhost:5090/admin/accounts/acct_demo/revoke`) makes the next poll fail with `invalid_grant`:
     the worker logs that `carcloud` account `acct_demo` needs to be linked again and stops polling it. The
     simulator also forgets rotated tokens when it restarts, which looks the same to the worker. To link

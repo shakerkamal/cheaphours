@@ -94,6 +94,11 @@ public sealed class GatewayFactory : ApiFactory
         {
             // The Development charger registration needs a hash; this one is the SHA-256 of nothing in particular.
             ["Providers:Ocpp:ChargePoints:0:PasswordHash"] = new string('0', 64),
+
+            // The gateway decides whether to register the heat-pump cloud before the user secrets above are
+            // removed, so a developer who configured it gets the provider without its secret. A test secret
+            // keeps the role valid either way; without the section it is ignored.
+            ["Providers:HeatPumpCloud:SigningSecret"] = "api-tests-heat-pump-signing-secret-0",
             ["ConnectionStrings:Mongo"] = "mongodb://127.0.0.1:1/?directConnection=true",
             ["ConnectionStrings:RabbitMq"] = "amqp://127.0.0.1:1/",
             ["Mongo:ServerSelectionTimeout"] = "00:00:00.500",

@@ -1,6 +1,7 @@
 # Local development stack: MongoDB (single-node replica set), RabbitMQ, an OCPP 1.6 charge-point
-# simulator that connects to the gateway running on this machine (dotnet run ... --role gateway), and a
-# car-cloud simulator that the worker polls (dotnet run ... --role worker).
+# simulator that connects to the gateway running on this machine (dotnet run ... --role gateway), a
+# car-cloud simulator that the worker polls (dotnet run ... --role worker), and a heat-pump-cloud simulator
+# that posts signed webhooks to the gateway.
 # Copy .env.example to .env first; see README "Run locally".
 name: cheaphours
 
@@ -78,6 +79,32 @@ services:
       Simulator__Accounts__0__RefreshToken: ${CARCLOUD_SEED_REFRESH_TOKEN:?set CARCLOUD_SEED_REFRESH_TOKEN in .env}
     ports:
       - "5090:8080"
+    healthcheck:
+      # The ASP.NET image has no curl: a plain HTTP request over bash's /dev/tcp.
+      test: ["CMD", "bash", "-c", 'exec 3<>/dev/tcp/127.0.0.1/8080 && printf "GET /health HTTP/1.0\r\n\r\n" >&3 && grep -q " 200 " <&3']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+      start_interval: 2s
+
+  heat-pump-cloud:
+    # The heat-pump maker's cloud that posts signed webhooks to the gateway on this machine
+    # (simulators/CheapHours.Simulators.HeatPumpCloud).
+    build:
+      context: .
+      dockerfile: simulators/CheapHours.Simulators.HeatPumpCloud/Dockerfile
+    image: cheaphours/heat-pump-cloud-simulator:local
+    environment:
+      # Admin endpoints redeliver an event, change the mode or remove the heat pump; see README "Run locally".
+      Admin__Enabled: "true"
+      Simulator__CallbackUrl: http://host.docker.internal:${GATEWAY_PORT:-5081}/webhooks/heatpumpcloud/acct_demo
+      Simulator__SigningSecret: ${HEATPUMP_SIGNING_SECRET:?set HEATPUMP_SIGNING_SECRET in .env}
+      Simulator__AccountId: acct_demo
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "5091:8080"
     healthcheck:
       # The ASP.NET image has no curl: a plain HTTP request over bash's /dev/tcp.
       test: ["CMD", "bash", "-c", 'exec 3<>/dev/tcp/127.0.0.1/8080 && printf "GET /health HTTP/1.0\r\n\r\n" >&3 && grep -q " 200 " <&3']

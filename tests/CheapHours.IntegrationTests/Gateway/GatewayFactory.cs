@@ -125,6 +125,14 @@ public sealed class GatewayFactory : WebApplicationFactory<Program>
 
         builder.UseSetting("role", "gateway");
         builder.UseEnvironment("Testing");
+
+        // The gateway reads some sections while it registers services (Providers:HeatPumpCloud), before the
+        // configuration below is applied; host settings are visible by then.
+        foreach (var (key, value) in _overrides)
+        {
+            builder.UseSetting(key, value);
+        }
+
         builder.ConfigureAppConfiguration((_, config) =>
         {
             var values = new Dictionary<string, string?>

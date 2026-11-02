@@ -22,12 +22,12 @@ page is binding.
 
 ## Status
 
-**Next:** propose the heat-pump-cloud change (its simulator with signed webhooks, the webhook provider
-with the first `IWebhookVerifier`, and the gate where all three providers pass the contract suite).
+**Next:** propose the prices-and-planner change (Energy-Charts import with retries and fallback, greedy
+planner with property tests, re-planning, goal, plan, prices and savings endpoints, ADR-005).
 
 ### Done
 
-- **Solution and build:** 11 source projects, 1 simulator and 4 test projects in `CheapHours.slnx`; one
+- **Solution and build:** 11 source projects, 2 simulators and 5 test projects in `CheapHours.slnx`; one
   host with `--role api | gateway | worker`; central package versions; warnings are errors.
 - **Module boundaries:** architecture tests keep Core free of other modules, I/O and vendor names, keep
   providers apart, forbid direct clock reads in Core and Planning, and keep simulators free of any `src`
@@ -61,14 +61,22 @@ with the first `IWebhookVerifier`, and the gate where all three providers pass t
   - `VendorUnits` (kW→W, kWh→Wh, UTC-only timestamps), `ProviderPollingSettings`, and a
     `CheapHours.Providers` meter tagged with provider and outcome only.
   - Options validated at startup; errors name the key and never contain a value.
+- **Adapter kit for webhook providers (`AddProvider<TProvider, TOptions>` with `WebhookProviderOptions`):**
+  signing secret (at least 32 characters), timestamp tolerance (1 s – 15 min, default 5 min), expected
+  report interval and linked accounts (owner, vendor account id), validated without echoing values;
+  `WebhookAccountDirectory` looks up an account's owner and the provider's report interval. Startup
+  fails when an `IWebhookVerifier` is not also an `IInboundTranslator` declaring `PushesEvents`.
 - **Shared provider contract suite (`Providers.Kit.Testing`):** `ProviderContractTests<TProvider>` with a
   harness per provider and `WireMockVendorFake` (OAuth token endpoint with rotation and revocation,
   failure and delay injection, request log). One fact per rule: normalised readings, removed devices,
   idempotency keys, 401 refresh, revocation, 429/5xx/timeouts transient, validation rejected,
-  undeclared capabilities refused before any call, no vendor failure thrown, pure and total translation.
+  undeclared capabilities refused before any call, no vendor failure thrown, pure and total translation,
+  and webhook verification (a signed sample verifies; a tampered body, a wrong secret, a stale timestamp
+  and missing or garbled headers are refused without an exception).
   Rules that do not fit a provider's interaction style are skipped with a reason. CarCloud passes every
-  polling, OAuth and command rule; OCPP passes translation and normalisation; two deliberately broken
-  providers fail it.
+  polling, OAuth and command rule; OCPP passes translation and normalisation; HeatPumpCloud passes
+  translation, normalisation and verification; three deliberately broken providers fail it (one throws
+  on a vendor 500, one sends an undeclared capability, one accepts every signature).
 - **Car-cloud provider (`carcloud`):** polls each linked account (vehicles, then each vehicle's state):
   `Discovered` with the battery capacity, `Connected` with make and model, status (offline when asleep),
   readings with session energy as the meter, `DeviceRemoved` on a 404, `MalformedInput` for a timestamp
@@ -79,16 +87,40 @@ with the first `IWebhookVerifier`, and the gate where all three providers pass t
   and stop deduplicated by `Idempotency-Key`, admin endpoints (plug in, unplug, start, revoke), in-memory
   state; runs in-process in tests and as the compose service `car-cloud`. A conformance test runs the
   CarCloud contract facts against it.
+- **Heat-pump-cloud provider (`heatpumpcloud`, the first `IWebhookVerifier`, D6):** verifies
+  `HeatPump-Signature: t=<unix seconds>,v1=<hex>` (HMAC-SHA256 over `"<t>.<raw body>"`, constant-time,
+  within the tolerance of receipt, never throws); translates `device.state` into `Discovered`
+  (`HeatPump`), `Connected` with maker and model, a status (`Heating`, `HotWater`, `Defrost`, `Standby`
+  → `Available`; `Fault` → `Faulted`; other modes `Unknown`; offline → `Offline` with no reading) and a
+  reading with the lifetime meter; `device.deleted` into `DeviceRemoved`; other types into nothing;
+  unreadable bodies or a timestamp without an offset into one `MalformedInput`. Registered in the gateway
+  only when `Providers:HeatPumpCloud` exists. README in the project.
+- **Heat-pump-cloud simulator (`simulators/CheapHours.Simulators.HeatPumpCloud`):** posts a signed
+  `device.state` per heat pump every interval (default 15 s) to its callback URL; power follows the mode
+  and lifetime energy grows with the injected clock; a failed delivery (5xx, 408, 429, timeout,
+  connection error) is retried after 1, 2, 4 and 8 s, re-signed over the same body, up to five attempts;
+  admin endpoints redeliver the last event, change the mode, remove a heat pump (`device.deleted`) and
+  list deliveries; `/health`. Runs in-process in tests and as the compose service `heat-pump-cloud`. A
+  conformance test checks that the provider verifies and translates what it sends.
+- **Webhook ingestion (gateway role):** `POST /webhooks/{providerId}/{externalAccountId}` checks, in this
+  order: readiness (503 while starting or draining), a registered verifier (404), a 64 KB body cap (413),
+  the signature over the raw body (401, before any parsing and before the account is looked up), the
+  configured account (404 and a warning), translation (400 for a body the provider cannot read), then
+  records through the shared `DeviceEventIngestor` (a discovered device joins the account's owner with
+  the provider's report interval) and answers 202 only after the readings are published; a broker or
+  database outage gives 503 so the vendor retries. A redelivered webhook gets the same telemetry message
+  id, so the inbox stores it once. Logs never carry the body or headers.
 - **Vendor-cloud polling (worker role):**
   - A MongoDB lease (`locks`) picks one leader; it renews, stops its loops when the lease is lost, and
     releases it on shutdown.
   - One loop per polling provider with a cap on concurrent polls, a poll deadline, and the schedule stored
     with the account (`nextPollAt`; `pausedUntil` from the vendor's `Retry-After`, so a new leader honours
     it). A throwing provider is scheduled as a failure. Reconnect-needed accounts are skipped.
-  - Poll results go through the shared `DeviceEventRecorder` (`Host/Devices`): a discovered device joins
-    the account's owner with the poll interval as its report interval (presence on read works for
-    vehicles); readings get a message id derived from the readings (UUIDv8), so a repeated poll adds no
-    duplicate; a removal marks the device `Offline` with `removedAt` and keeps it.
+  - Poll results go through the shared `DeviceEventIngestor` (`Host/Devices`, also used for webhooks) and
+    `DeviceEventRecorder`: a discovered device joins the account's owner with the poll interval as its
+    report interval (presence on read works for vehicles); readings get a message id derived from the
+    provider, the vendor id and the readings' times (UUIDv8), so a repeated poll adds no duplicate; a
+    removal marks the device `Offline` with `removedAt` and keeps it.
   - CarCloud is registered only when `Providers:CarCloud` exists; Data Protection uses the default key
     location or `DataProtection:KeysPath`.
 - **Message contracts:** `Message` envelope (id, time, type, schema version, `traceparent`), seven
@@ -101,12 +133,13 @@ with the first `IWebhookVerifier`, and the gate where all three providers pass t
   decision (confirm, resend or fail) against the device's last observation. Property tests (FsCheck)
   cover terminal states and key uniqueness.
 - **Local environment:** `docker compose` with MongoDB 8.0 (single-node replica set, self-initialising),
-  RabbitMQ 4.2, the Solidstudio OCPP 1.6 simulator built from a pinned commit, and the car-cloud
-  simulator (pinned .NET images, `5090`).
+  RabbitMQ 4.2, the Solidstudio OCPP 1.6 simulator built from a pinned commit, the car-cloud
+  simulator (`5090`) and the heat-pump-cloud simulator (`5091`, posting to the gateway through
+  `host.docker.internal`), on pinned .NET images; five healthy services.
   - Local secrets live in a git-ignored `.env` (the charger password, the RabbitMQ account, the
-    car-cloud client secret and seed refresh token).
-  - The gateway's password hash, the broker connection string and the worker's `Providers:CarCloud`
-    settings live in `dotnet user-secrets`.
+    car-cloud client secret and seed refresh token, the heat-pump signing secret).
+  - The gateway's password hash and `Providers:HeatPumpCloud` settings, the broker connection string
+    and the worker's `Providers:CarCloud` settings live in `dotnet user-secrets`.
   - The simulator sends meter values every 15 s during a charging session started with its admin
     scripts (README "Run locally").
 - **OCPP gateway (gateway role):**
@@ -179,7 +212,7 @@ with the first `IWebhookVerifier`, and the gate where all three providers pass t
   reader; index creation; camelCase and enum-name conventions; `schemaVersion` on every document.
 - **ADRs:** 001 (modular monolith), 002 (time-series telemetry), 003 (RabbitMQ), 008 (gateway command
   routing).
-- **Tests:** 1073 green and 11 skipped by design (contract rules that do not fit a provider): unit,
+- **Tests:** 1202 green and 31 skipped by design (contract rules that do not fit a provider): unit,
   property, architecture, API contract, provider contract, and integration tests against a
   real MongoDB and RabbitMQ in Testcontainers, with a real gateway on Kestrel, a real worker host and
   the API role on its own database (one model-based FsCheck test checks the bucket pipeline).
@@ -187,8 +220,6 @@ with the first `IWebhookVerifier`, and the gate where all three providers pass t
 
 ### Left to build
 
-- **Heat-pump cloud:** heat-pump simulator (signed webhooks, at-least-once delivery) and webhook provider
-  with the first `IWebhookVerifier`, on the contract suite.
 - **Prices and planner:** Energy-Charts price import with retries and fallback, greedy planner with
   property tests, re-planning on new prices, goal change or SoC drift, goal/plan/prices/savings
   endpoints, ADR-005.
@@ -226,7 +257,7 @@ with the first `IWebhookVerifier`, and the gate where all three providers pass t
 | D3 | `apiKeys` + `ownerId`; one seeded demo user | Accepted: `apiKeys` in MongoDB seeded from configuration; every device read is owner-scoped |
 | D4 | 15-minute slots everywhere | Accepted: `PlanSlot` |
 | D5 | Per-slot Start/Stop/SetPowerLimit in core | Accepted: `CommandType` |
-| D6 | `IWebhookVerifier` per provider | Accepted: interface built; first implementation with the heat-pump provider |
+| D6 | `IWebhookVerifier` per provider | Accepted: interface built; first implementation `HeatPumpCloudProvider` (HMAC-SHA256 over timestamp and raw body) |
 | D7 | Command states `Pending, Published, Sent, Confirmed, Reconciling, Rejected, DeadLettered` | Confirmed by the user against the Notion diagram |
 | D8 | Rename "WattBridge" to CheapHours in Notion | Open (Notion edit, user) |
 | D9 | Map the plan onto the week-by-week roadmap | Needs the roadmap from the user |
@@ -280,11 +311,13 @@ dotnet test                                    # all tests; integration tests ne
 dotnet test --project tests/CheapHours.UnitTests --filter-class "*RoleParserTests"   # one class (MTP/xUnit v3 syntax)
 dotnet test --filter-method "*Role*"           # by method name; VSTest-style --filter is not supported
 dotnet run --project src/CheapHours.Host -- --role api      # or gateway | worker (Development via launchSettings)
-docker compose up -d --wait                    # local MongoDB, RabbitMQ, OCPP simulator (needs .env, see README)
-dotnet run --project src/CheapHours.Host -- --role gateway --urls http://localhost:5081   # simulator connects here
+docker compose up -d --wait                    # local MongoDB, RabbitMQ and the three vendor simulators (needs .env, see README)
+dotnet run --project src/CheapHours.Host -- --role gateway --urls http://localhost:5081   # the charger connects and heat-pump webhooks arrive here
 dotnet run --project src/CheapHours.Host -- --role worker      # stores telemetry; polls the car cloud when Providers:CarCloud is set
 dotnet test --project tests/CheapHours.ContractTests             # the shared provider contract suite (no Docker needed)
 dotnet run --project simulators/CheapHours.Simulators.CarCloud -- --Simulator:ClientSecret=<s> --Simulator:Accounts:0:RefreshToken=<t> --Admin:Enabled=true   # simulator without Docker
+dotnet run --project simulators/CheapHours.Simulators.HeatPumpCloud -- --Simulator:CallbackUrl=http://localhost:5081/webhooks/heatpumpcloud/acct_demo --Simulator:SigningSecret=<s> --Admin:Enabled=true   # heat-pump simulator without Docker
+curl -s -X POST http://localhost:5091/admin/heat-pumps/hp_1/redeliver   # resend the last event unchanged (adds no reading)
 dotnet run --project src/CheapHours.Host -- --role api --urls http://localhost:5080   # device API (demo key: README "Run locally")
 UPDATE_SNAPSHOT=1 dotnet test --project tests/CheapHours.ApiTests   # deliberately refresh docs/api/openapi.v1.json
 openspec validate --all --strict               # check all changes and specs
@@ -303,7 +336,7 @@ src/CheapHours.Providers.Kit         adapter interfaces, registration, resilienc
 src/CheapHours.Providers.Kit.Testing shared provider contract suite, WireMock vendor fake, in-memory account store
 src/CheapHours.Providers.{Ocpp,CarCloud,HeatPumpCloud}
 src/CheapHours.Host                  single entry point: --role api | gateway | worker
-simulators/                          vendor stand-ins that reference no src project (CheapHours.Simulators.CarCloud)
+simulators/                          vendor stand-ins that reference no src project (CheapHours.Simulators.CarCloud, .HeatPumpCloud)
 tests/                               UnitTests, ArchitectureTests, ApiTests, ContractTests, IntegrationTests (+ later EndToEnd)
 docker/ocpp-simulator/               pinned build of the OCPP 1.6 charge-point simulator
 docker-compose.yml, .env.example     local stack; .env is git-ignored
@@ -370,11 +403,15 @@ public sealed record DeviceReading
   (assembly fixture), a fresh database per test class or gateway host; the gateway runs on real Kestrel
   (`WebApplicationFactory.UseKestrel`) with real `ClientWebSocket` chargers, and a RabbitMQ container per
   run. Worker tests run real worker hosts (two for the polling leader) and the car-cloud simulator
-  in-process on Kestrel with its own `FakeTimeProvider`.
+  in-process on Kestrel with its own `FakeTimeProvider`. Webhook tests post signed webhooks to the
+  gateway on Kestrel; the heat-pump simulator runs in-process with a fake clock and a recording handler,
+  and once over real HTTP into the gateway end to end. `GatewayFactory` passes its overrides as host
+  settings too, because the gateway reads `Providers:HeatPumpCloud` while it registers services.
 - Contract (`tests/CheapHours.ContractTests`): each provider subclasses `ProviderContractTests<T>` with a
-  harness; HTTP providers run against `WireMockVendorFake`; inapplicable rules report as skipped with a
-  reason. The suite is proven against deliberately broken providers, and the CarCloud facts also run
-  against the real simulator.
+  harness; HTTP providers run against `WireMockVendorFake`; webhook verifiers get signed samples from
+  their harness; inapplicable rules report as skipped with a reason. The suite is proven against
+  deliberately broken providers, the CarCloud facts also run against the real simulator, and webhooks
+  captured from the real heat-pump simulator must verify and translate with the provider.
 - Never mock our own interfaces in integration tests; use real containers or faithful fakes.
 - Failure paths first: every row of the System Design reliability table gets a test.
 

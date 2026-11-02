@@ -2,6 +2,7 @@ using CheapHours.Host.Devices;
 using CheapHours.Host.Health;
 using CheapHours.Messaging;
 using CheapHours.Persistence;
+using CheapHours.Providers.HeatPumpCloud;
 using CheapHours.Providers.Kit;
 using CheapHours.Providers.Ocpp;
 using CheapHours.Providers.Ocpp.Framing;
@@ -11,7 +12,10 @@ using Microsoft.Extensions.Options;
 
 namespace CheapHours.Host.Gateway;
 
-/// <summary>Builds the device gateway process: OCPP charger WebSockets (vendor webhooks come with the cloud providers).</summary>
+/// <summary>
+/// Builds the device gateway process, the public edge for devices and vendors: OCPP charger WebSockets and signed
+/// vendor webhooks (the heat-pump cloud when <c>Providers:HeatPumpCloud</c> exists).
+/// </summary>
 internal static class GatewayRole
 {
     /// <summary>The tag of the checks behind <c>/health/ready</c>.</summary>
@@ -37,6 +41,10 @@ internal static class GatewayRole
         services.AddSingleton<OcppSchemaValidator>();
         services.AddSingleton<IValidateOptions<OcppOptions>, OcppOptionsValidator>();
         services.AddProvider<OcppProvider, OcppOptions>(OcppOptions.SectionName);
+        if (builder.Configuration.GetSection(HeatPumpCloudOptions.SectionName).Exists())
+        {
+            services.AddProvider<HeatPumpCloudProvider, HeatPumpCloudOptions>(HeatPumpCloudOptions.SectionName);
+        }
 
         services.AddOptions<GatewayOptions>().BindConfiguration(GatewayOptions.SectionName).ValidateOnStart();
         services.AddSingleton<IValidateOptions<GatewayOptions>, GatewayOptionsValidator>();
@@ -45,6 +53,7 @@ internal static class GatewayRole
         services.AddSingleton<ConnectionTable>();
         services.AddSingleton<ChargerAuthenticator>();
         services.AddSingleton<DeviceEventRecorder>();
+        services.AddSingleton<DeviceEventIngestor>();
         services.AddSingleton<ChargerSession>();
 
         // The drain service is registered first so it hooks ApplicationStopping before anything else stops.
@@ -64,6 +73,7 @@ internal static class GatewayRole
         app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
         app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains(ReadyTag) });
         app.MapOcppEndpoint();
+        app.MapWebhookEndpoint();
 
         return app;
     }
