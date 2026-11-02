@@ -60,6 +60,20 @@ internal sealed class ProviderRegistryValidator(
             {
                 yield return $"{name}: implements {nameof(IInboundTranslator)} but does not declare {nameof(Capabilities.PushesEvents)}.";
             }
+
+            // The gateway hands a verified webhook to the same provider's translator.
+            if (provider is IWebhookVerifier)
+            {
+                if (provider is not IInboundTranslator)
+                {
+                    yield return $"{name}: implements {nameof(IWebhookVerifier)} but not {nameof(IInboundTranslator)}.";
+                }
+
+                if (!provider.Capabilities.HasFlag(Capabilities.PushesEvents))
+                {
+                    yield return $"{name}: implements {nameof(IWebhookVerifier)} but does not declare {nameof(Capabilities.PushesEvents)}.";
+                }
+            }
         }
     }
 }

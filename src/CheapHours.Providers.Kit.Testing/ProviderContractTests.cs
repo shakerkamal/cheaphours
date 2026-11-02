@@ -28,6 +28,8 @@ public abstract class ProviderContractTests<TProvider>
 
     private static readonly string Name = typeof(TProvider).Name;
 
+    private static readonly DateTimeOffset WebhookReceivedAt = new(2026, 11, 2, 10, 0, 0, TimeSpan.Zero);
+
     /// <summary>Gets the test's cancellation token.</summary>
     protected static CancellationToken Ct => TestContext.Current.CancellationToken;
 
@@ -264,6 +266,85 @@ public abstract class ProviderContractTests<TProvider>
         Assert.IsType<DeviceEvent.MalformedInput>(Assert.Single(malformed));
     }
 
+    /// <summary>A webhook signed with the configured secret just before it was received verifies.</summary>
+    /// <returns>A task that completes when checked.</returns>
+    [Fact]
+    public async Task A_signed_webhook_verifies()
+    {
+        await using var run = await StartAsync();
+        var (verifier, body) = RequireVerifier(run);
+
+        var message = run.Harness.SignedWebhook(body, WebhookReceivedAt, WebhookReceivedAt.AddSeconds(-10));
+
+        Assert.True(Verify(verifier, message), $"{Name} refused a webhook signed with the configured secret.");
+    }
+
+    /// <summary>A webhook whose body changed after signing (one byte) is refused.</summary>
+    /// <returns>A task that completes when checked.</returns>
+    [Fact]
+    public async Task A_webhook_with_a_tampered_body_is_refused()
+    {
+        await using var run = await StartAsync();
+        var (verifier, body) = RequireVerifier(run);
+        var signed = run.Harness.SignedWebhook(body, WebhookReceivedAt, WebhookReceivedAt);
+
+        var tampered = signed.Body.ToArray();
+        tampered[tampered.Length / 2] ^= 0x01;
+        var message = new InboundMessage(signed.ExternalId, tampered, signed.Headers, signed.ReceivedAt);
+
+        Assert.False(Verify(verifier, message), $"{Name} accepted a webhook whose body changed after signing.");
+    }
+
+    /// <summary>A webhook signed with another secret is refused.</summary>
+    /// <returns>A task that completes when checked.</returns>
+    [Fact]
+    public async Task A_webhook_signed_with_a_wrong_secret_is_refused()
+    {
+        await using var run = await StartAsync();
+        var (verifier, body) = RequireVerifier(run);
+        var wrong = "not-the-" + (run.Harness.SigningSecret ?? throw new InvalidOperationException("A verifier harness must supply its signing secret."));
+
+        var message = run.Harness.SignedWebhook(body, WebhookReceivedAt, WebhookReceivedAt, wrong);
+
+        Assert.False(Verify(verifier, message), $"{Name} accepted a webhook signed with a wrong secret.");
+    }
+
+    /// <summary>A webhook signed longer ago than any allowed tolerance is refused.</summary>
+    /// <returns>A task that completes when checked.</returns>
+    [Fact]
+    public async Task A_webhook_with_a_stale_timestamp_is_refused()
+    {
+        await using var run = await StartAsync();
+        var (verifier, body) = RequireVerifier(run);
+        var beyondAnyTolerance = WebhookProviderOptions.MaximumTolerance + TimeSpan.FromMinutes(1);
+
+        var message = run.Harness.SignedWebhook(body, WebhookReceivedAt, WebhookReceivedAt - beyondAnyTolerance);
+
+        Assert.False(Verify(verifier, message), $"{Name} accepted a webhook signed {beyondAnyTolerance} before it was received.");
+    }
+
+    /// <summary>A webhook without its signature headers, or with garbled ones, is refused, and verifying never throws.</summary>
+    /// <returns>A task that completes when checked.</returns>
+    [Fact]
+    public async Task A_webhook_with_a_missing_or_garbled_signature_is_refused()
+    {
+        await using var run = await StartAsync();
+        var (verifier, body) = RequireVerifier(run);
+        var signed = run.Harness.SignedWebhook(body, WebhookReceivedAt, WebhookReceivedAt);
+        Assert.NotEmpty(signed.Headers);
+
+        var unsigned = new InboundMessage(signed.ExternalId, signed.Body, new Dictionary<string, string>(), signed.ReceivedAt);
+        Assert.False(Verify(verifier, unsigned), $"{Name} accepted a webhook without signature headers.");
+
+        string[] garbles = ["", " ", "garbage", "v1=zz,t=abc", "t=,v1=", "=", ",,,", "t=1,t=2", "\u0000ÿ", new string('9', 4096)];
+        foreach (var garble in garbles.Concat(signed.Headers.Values.Select(v => v[..(v.Length / 2)])))
+        {
+            var headers = signed.Headers.ToDictionary(h => h.Key, _ => garble, StringComparer.OrdinalIgnoreCase);
+            var message = new InboundMessage(signed.ExternalId, signed.Body, headers, signed.ReceivedAt);
+            Assert.False(Verify(verifier, message), $"{Name} accepted a webhook whose signature headers were all '{Shorten(garble)}'.");
+        }
+    }
+
     /// <summary>Creates a fresh harness (and vendor fake) for one fact.</summary>
     /// <returns>The harness.</returns>
     protected abstract IProviderContractHarness CreateHarness();
@@ -297,6 +378,32 @@ public abstract class ProviderContractTests<TProvider>
 
         return new Run(harness, sp, sp.GetRequiredService<TProvider>(), logs);
     }
+
+    private static (IWebhookVerifier Verifier, string Body) RequireVerifier(Run run)
+    {
+        if (run.Provider is not IWebhookVerifier verifier)
+        {
+            return Skip<(IWebhookVerifier, string)>($"{Name} does not implement {nameof(IWebhookVerifier)}");
+        }
+
+        var body = run.Harness.SampleWebhookBody ?? throw new InvalidOperationException("A verifier harness must supply a sample webhook body.");
+        return (verifier, body);
+    }
+
+    private static bool Verify(IWebhookVerifier verifier, InboundMessage message)
+    {
+        try
+        {
+            return verifier.Verify(message);
+        }
+        catch (Exception ex) when (ex is not XunitException)
+        {
+            Assert.Fail($"{Name}.Verify threw {ex.GetType().Name}: a missing or malformed signature must return false.");
+            throw;
+        }
+    }
+
+    private static string Shorten(string text) => text.Length <= 24 ? text : text[..24] + "…";
 
     private static IPollingProvider RequirePolling(Run run) =>
         run.Provider as IPollingProvider ?? Skip<IPollingProvider>($"{Name} does not implement {nameof(IPollingProvider)}");

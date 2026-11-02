@@ -49,7 +49,9 @@ public static class ProviderServiceCollectionExtensions
     /// When <typeparamref name="TOptions"/> derives from <see cref="HttpProviderOptions"/>, the provider also gets
     /// its own named <see cref="HttpClient"/> with the vendor resilience pipeline (the bulkhead between
     /// providers), <see cref="ProviderHttpClient{TProvider}"/> with per-account rate limiting and metrics, and a
-    /// <see cref="ProviderPollingSettings"/> entry. The options are validated at startup without echoing values.
+    /// <see cref="ProviderPollingSettings"/> entry. When it derives from <see cref="WebhookProviderOptions"/>, the
+    /// provider's linked accounts are added to <see cref="WebhookAccountDirectory"/>. The options are validated at
+    /// startup without echoing values.
     /// </remarks>
     public static IServiceCollection AddProvider<TProvider, TOptions>(this IServiceCollection services, string configSection)
         where TProvider : class, IDeviceProvider
@@ -64,7 +66,23 @@ public static class ProviderServiceCollectionExtensions
             AddHttp<TProvider, TOptions>(services, configSection);
         }
 
+        if (typeof(WebhookProviderOptions).IsAssignableFrom(typeof(TOptions)))
+        {
+            AddWebhook<TProvider, TOptions>(services, configSection);
+        }
+
         return services.AddProvider<TProvider>(configSection);
+    }
+
+    private static void AddWebhook<TProvider, TOptions>(IServiceCollection services, string configSection)
+        where TProvider : class, IDeviceProvider
+        where TOptions : class
+    {
+        services.AddSingleton<IValidateOptions<TOptions>>(new WebhookProviderOptionsValidator<TOptions>(configSection));
+        services.AddSingleton(new WebhookRegistration(
+            typeof(TProvider),
+            sp => (WebhookProviderOptions)(object)sp.GetRequiredService<IOptions<TOptions>>().Value));
+        services.TryAddSingleton(sp => new WebhookAccountDirectory(sp.GetServices<WebhookRegistration>(), sp));
     }
 
     private static void AddHttp<TProvider, TOptions>(IServiceCollection services, string configSection)

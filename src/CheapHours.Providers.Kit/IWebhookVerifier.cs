@@ -2,7 +2,9 @@ namespace CheapHours.Providers.Kit;
 
 /// <summary>
 /// Checks that a webhook really came from the provider's vendor (D6). Signing schemes differ per vendor, so
-/// each push provider that receives webhooks supplies its own.
+/// each push provider that receives webhooks supplies its own. A verifier must also implement
+/// <see cref="IInboundTranslator"/> and declare <see cref="CheapHours.Core.Devices.Capabilities.PushesEvents"/>;
+/// startup fails otherwise.
 /// </summary>
 public interface IWebhookVerifier : IDeviceProvider
 {

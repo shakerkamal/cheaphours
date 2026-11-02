@@ -60,6 +60,7 @@ internal static class WorkerRole
             .Validate(o => o.MaxConcurrentPolls >= 1, "Polling: MaxConcurrentPolls must be at least 1.")
             .ValidateOnStart();
         services.AddSingleton<DeviceEventRecorder>();
+        services.AddSingleton<DeviceEventIngestor>();
         services.AddSingleton<IPollRecorder, PollResultRecorder>();
 
         services.AddHostedService<WorkerStartup>();

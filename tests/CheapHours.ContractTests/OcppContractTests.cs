@@ -5,20 +5,20 @@ using CheapHours.Providers.Kit.Testing;
 using CheapHours.Providers.Ocpp;
 using CheapHours.Providers.Ocpp.Framing;
 using Microsoft.Extensions.DependencyInjection;
-using Xunit.Sdk;
 
 namespace CheapHours.ContractTests;
 
 /// <summary>
 /// The OCPP provider on the shared suite. OCPP chargers push frames, so it is a translator only: its
-/// translation and normalisation rules run, and its polling, command and HTTP rules are reported as skipped.
+/// translation and normalisation rules run, and its polling, command, HTTP and webhook verification rules are
+/// reported as skipped.
 /// </summary>
 public sealed class OcppContractTests : ProviderContractTests<OcppProvider>
 {
     [Fact]
     public async Task Polling_rules_are_skipped_naming_the_missing_interaction_style()
     {
-        var skip = await SkipOfAsync(() => new OcppContractTests().An_unknown_device_is_reported());
+        var skip = await Skips.ReasonOfAsync(() => new OcppContractTests().An_unknown_device_is_reported());
 
         Assert.Contains(nameof(IPollingProvider), skip, StringComparison.Ordinal);
     }
@@ -26,28 +26,17 @@ public sealed class OcppContractTests : ProviderContractTests<OcppProvider>
     [Fact]
     public async Task Command_rules_are_skipped_naming_the_missing_interaction_style()
     {
-        var skip = await SkipOfAsync(() => new OcppContractTests().A_duplicate_key_acts_once());
+        var skip = await Skips.ReasonOfAsync(() => new OcppContractTests().A_duplicate_key_acts_once());
 
         Assert.Contains(nameof(ICommandSender), skip, StringComparison.Ordinal);
     }
 
-    /// <summary>Runs a fact and returns its skip reason; fails when it passes or fails instead of skipping.</summary>
-    private static async Task<string> SkipOfAsync(Func<Task> fact)
+    [Fact]
+    public async Task Webhook_verification_rules_are_skipped_naming_the_missing_interface()
     {
-        // Caught by hand: xUnit's Assert.Throws* let a skip through, which would skip this test too.
-        Exception? thrown = null;
-        try
-        {
-            await fact();
-        }
-        catch (Exception ex)
-        {
-            thrown = ex;
-        }
+        var skip = await Skips.ReasonOfAsync(() => new OcppContractTests().A_webhook_with_a_tampered_body_is_refused());
 
-        var outcome = thrown is null ? "passed" : $"{thrown.GetType().Name}: {thrown.Message.Replace("$XunitDynamicSkip$", "<skip>", StringComparison.Ordinal)}";
-        Assert.True(thrown is SkipException, $"Expected the fact to be skipped, but it {outcome}.");
-        return thrown.Message;
+        Assert.Contains(nameof(IWebhookVerifier), skip, StringComparison.Ordinal);
     }
 
     protected override IProviderContractHarness CreateHarness() => new OcppHarness();

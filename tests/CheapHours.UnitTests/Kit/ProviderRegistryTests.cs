@@ -71,6 +71,28 @@ public sealed class ProviderRegistryTests
     }
 
     [Fact]
+    public async Task Verifier_without_a_translator_fails_startup_naming_provider_and_translator()
+    {
+        using var sp = Build(s => s.AddProvider<LoneVerifier>("Providers:Hooks"));
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => StartAsync(sp));
+
+        Assert.Contains("LoneVerifier ('lone')", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("implements IWebhookVerifier but not IInboundTranslator", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Verifier_without_pushes_events_fails_startup()
+    {
+        using var sp = Build(s => s.AddProvider<QuietVerifier>("Providers:Hooks"));
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => StartAsync(sp));
+
+        Assert.Contains("QuietVerifier ('quietverifier')", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("implements IWebhookVerifier but does not declare PushesEvents", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Malformed_provider_id_fails_startup()
     {
         using var sp = Build(s => s.AddProvider<BadIdProvider>("Providers:Mute"));
@@ -176,6 +198,26 @@ public sealed class ProviderRegistryTests
         public Capabilities Capabilities => Capabilities.ReadTelemetry;
 
         public IReadOnlyList<DeviceEvent> Translate(InboundMessage message) => [];
+    }
+
+    private sealed class LoneVerifier : IWebhookVerifier
+    {
+        public string ProviderId => "lone";
+
+        public Capabilities Capabilities => Capabilities.ReadTelemetry | Capabilities.PushesEvents;
+
+        public bool Verify(InboundMessage message) => false;
+    }
+
+    private sealed class QuietVerifier : IInboundTranslator, IWebhookVerifier
+    {
+        public string ProviderId => "quietverifier";
+
+        public Capabilities Capabilities => Capabilities.ReadTelemetry;
+
+        public IReadOnlyList<DeviceEvent> Translate(InboundMessage message) => [];
+
+        public bool Verify(InboundMessage message) => false;
     }
 
     private sealed class BadIdProvider : IDeviceProvider

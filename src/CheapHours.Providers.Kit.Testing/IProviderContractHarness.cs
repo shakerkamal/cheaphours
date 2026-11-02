@@ -39,6 +39,24 @@ public interface IProviderContractHarness : IAsyncDisposable
     /// <summary>Gets a malformed input.</summary>
     InboundMessage? MalformedInput { get; }
 
+    /// <summary>Gets the signing secret the provider is configured with, for webhook verifiers.</summary>
+    string? SigningSecret => null;
+
+    /// <summary>Gets a webhook body the provider's vendor would send, for webhook verifiers.</summary>
+    string? SampleWebhookBody => null;
+
+    /// <summary>Builds a webhook with the vendor's signature header, for webhook verifiers.</summary>
+    /// <param name="body">The raw body to sign and send.</param>
+    /// <param name="receivedAt">When the gateway received it (UTC).</param>
+    /// <param name="signedAt">The time the vendor puts in the signature.</param>
+    /// <param name="secret">The secret to sign with; <see langword="null"/> for <see cref="SigningSecret"/>.</param>
+    /// <returns>
+    /// The webhook as the gateway would hand it to the verifier, carrying only the headers its signature depends on
+    /// (the suite garbles all of them).
+    /// </returns>
+    InboundMessage SignedWebhook(string body, DateTimeOffset receivedAt, DateTimeOffset signedAt, string? secret = null) =>
+        throw new NotSupportedException("This harness does not sign webhooks.");
+
     /// <summary>Registers the provider (through <c>AddProvider</c>) and whatever else it needs.</summary>
     /// <param name="services">The services; configuration, logging, the account store, data protection and a clock are already there.</param>
     void Register(IServiceCollection services);
