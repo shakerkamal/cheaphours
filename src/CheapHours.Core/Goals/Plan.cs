@@ -17,7 +17,10 @@ public sealed record Plan
     /// <param name="slots">The chosen 15-minute slots, in ascending order without overlaps.</param>
     /// <param name="expectedCostEur">The expected energy cost of the plan in EUR (exchange price only; may be negative).</param>
     /// <param name="arrivalCostEur">The cost of charging at full power from plug-in instead, in EUR.</param>
-    /// <param name="expiresAtUtc">When a draft expires (UTC); required for drafts, ignored otherwise.</param>
+    /// <param name="targetMissed">Whether the window before departure is too short to reach the target.</param>
+    /// <param name="pricesComplete">Whether every chosen slot and every arrival slot had a price.</param>
+    /// <param name="madeAtUtc">When this version was made (UTC).</param>
+    /// <param name="expiresAtUtc">When a draft expires (UTC), after <paramref name="madeAtUtc"/>; required for drafts, ignored otherwise.</param>
     /// <exception cref="ArgumentException">A value is missing or breaks a rule above.</exception>
     public Plan(
         PlanId id,
@@ -28,6 +31,9 @@ public sealed record Plan
         IReadOnlyList<PlanSlot> slots,
         decimal expectedCostEur,
         decimal arrivalCostEur,
+        bool targetMissed,
+        bool pricesComplete,
+        DateTimeOffset madeAtUtc,
         DateTimeOffset? expiresAtUtc = null)
     {
         ArgumentNullException.ThrowIfNull(slots);
@@ -37,9 +43,18 @@ public sealed record Plan
             throw new ArgumentOutOfRangeException(nameof(status), status, "Unknown plan status.");
         }
 
-        if (status == PlanStatus.Draft && expiresAtUtc is null)
+        Guard.Utc(madeAtUtc);
+        if (status == PlanStatus.Draft)
         {
-            throw new ArgumentException("A draft plan needs an expiry time.", nameof(expiresAtUtc));
+            if (expiresAtUtc is not { } expires)
+            {
+                throw new ArgumentException("A draft plan needs an expiry time.", nameof(expiresAtUtc));
+            }
+
+            if (Guard.Utc(expires, nameof(expiresAtUtc)) <= madeAtUtc)
+            {
+                throw new ArgumentException("A draft must expire after it was made.", nameof(expiresAtUtc));
+            }
         }
 
         for (var i = 1; i < slots.Count; i++)
@@ -58,7 +73,10 @@ public sealed record Plan
         Slots = [.. slots];
         ExpectedCostEur = expectedCostEur;
         ArrivalCostEur = arrivalCostEur;
-        ExpiresAtUtc = status == PlanStatus.Draft ? Guard.Utc(expiresAtUtc) : null;
+        TargetMissed = targetMissed;
+        PricesComplete = pricesComplete;
+        MadeAtUtc = madeAtUtc;
+        ExpiresAtUtc = status == PlanStatus.Draft ? expiresAtUtc : null;
     }
 
     /// <summary>Gets the plan's id.</summary>
@@ -88,6 +106,24 @@ public sealed record Plan
     /// <summary>Gets the savings against charging on arrival, in EUR.</summary>
     public decimal SavingsEur => ArrivalCostEur - ExpectedCostEur;
 
+    /// <summary>Gets whether the window before departure is too short to reach the target.</summary>
+    public bool TargetMissed { get; }
+
+    /// <summary>Gets whether every chosen slot and every arrival slot had a price.</summary>
+    public bool PricesComplete { get; }
+
+    /// <summary>Gets when this version was made (UTC).</summary>
+    public DateTimeOffset MadeAtUtc { get; }
+
     /// <summary>Gets when the draft expires (UTC), or <see langword="null"/> when the plan is not a draft.</summary>
     public DateTimeOffset? ExpiresAtUtc { get; }
+
+    /// <summary>
+    /// Returns the status as shown at <paramref name="nowUtc"/>: a draft past its expiry reads as
+    /// <see cref="PlanStatus.Expired"/> without anything being written.
+    /// </summary>
+    /// <param name="nowUtc">The current time (UTC).</param>
+    /// <returns>The effective status.</returns>
+    public PlanStatus StatusAsOf(DateTimeOffset nowUtc) =>
+        Status == PlanStatus.Draft && ExpiresAtUtc <= Guard.Utc(nowUtc) ? PlanStatus.Expired : Status;
 }

@@ -10,7 +10,7 @@ the old one.
 | [002](002-mongodb-time-series-telemetry.md) | MongoDB time-series collection for telemetry | Accepted |
 | [003](003-rabbitmq.md) | RabbitMQ with quorum queues and delay-queue retries | Accepted |
 | 004 | Own small outbox and inbox on RabbitMQ.Client | Planned |
-| 005 | Greedy cheapest-slot planner | Planned |
+| [005](005-greedy-cheapest-slot-planner.md) | Greedy cheapest-slot planner | Accepted |
 | 006 | The OCPP 1.6J messages smart charging needs | Planned |
 | 007 | The agent changes devices only through confirmed plans | Planned |
 | [008](008-gateway-command-routing.md) | Gateway command routing through per-replica queues | Accepted |

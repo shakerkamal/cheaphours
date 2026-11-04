@@ -12,6 +12,7 @@ public sealed class GoalPlanTests
     private static readonly DeviceId Wallbox = DeviceId.Parse("dev_wallbox_01");
     private static readonly DateTimeOffset Departure = new(2026, 10, 12, 5, 0, 0, TimeSpan.Zero);
     private static readonly DateTimeOffset OneAm = new(2026, 10, 12, 1, 0, 0, TimeSpan.Zero);
+    private static readonly DateTimeOffset MadeAt = new(2026, 10, 11, 18, 0, 0, TimeSpan.Zero);
 
     [Fact]
     public void Goal_links_a_vehicle_and_a_charger()
@@ -83,16 +84,61 @@ public sealed class GoalPlanTests
     [Fact]
     public void Draft_needs_an_expiry_and_other_statuses_drop_it()
     {
-        Assert.Throws<ArgumentException>(() => new Plan(PlanId, GoalId, Owner, 1, PlanStatus.Draft, [], 0, 0));
+        Assert.Throws<ArgumentException>(() => new Plan(PlanId, GoalId, Owner, 1, PlanStatus.Draft, [], 0, 0, false, true, MadeAt));
 
-        var confirmed = new Plan(PlanId, GoalId, Owner, 1, PlanStatus.Confirmed, [], 0, 0, OneAm);
+        var confirmed = new Plan(PlanId, GoalId, Owner, 1, PlanStatus.Confirmed, [], 0, 0, false, true, MadeAt, OneAm);
         Assert.Null(confirmed.ExpiresAtUtc);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void Draft_expiry_at_or_before_made_is_refused(int minutes)
+    {
+        Assert.Throws<ArgumentException>(() =>
+            new Plan(PlanId, GoalId, Owner, 1, PlanStatus.Draft, [], 0, 0, false, true, MadeAt, MadeAt.AddMinutes(minutes)));
+    }
+
+    [Fact]
+    public void Plan_made_at_must_be_utc()
+    {
+        var local = new DateTimeOffset(2026, 10, 11, 20, 0, 0, TimeSpan.FromHours(2));
+
+        Assert.Throws<ArgumentException>(() =>
+            new Plan(PlanId, GoalId, Owner, 1, PlanStatus.Confirmed, [], 0, 0, false, true, local));
+    }
+
+    [Fact]
+    public void Plan_keeps_its_flags_and_made_at()
+    {
+        var plan = new Plan(PlanId, GoalId, Owner, 2, PlanStatus.Confirmed, [], 0, 0, targetMissed: true, pricesComplete: false, MadeAt);
+
+        Assert.True(plan.TargetMissed);
+        Assert.False(plan.PricesComplete);
+        Assert.Equal(MadeAt, plan.MadeAtUtc);
+    }
+
+    [Fact]
+    public void Draft_reads_as_expired_once_its_expiry_has_passed()
+    {
+        var plan = Draft([]);
+
+        Assert.Equal(PlanStatus.Draft, plan.StatusAsOf(MadeAt.AddMinutes(9).AddSeconds(59)));
+        Assert.Equal(PlanStatus.Expired, plan.StatusAsOf(MadeAt.AddMinutes(10).AddSeconds(1)));
+    }
+
+    [Fact]
+    public void Confirmed_plan_never_reads_as_expired()
+    {
+        var plan = new Plan(PlanId, GoalId, Owner, 1, PlanStatus.Confirmed, [], 0, 0, false, true, MadeAt);
+
+        Assert.Equal(PlanStatus.Confirmed, plan.StatusAsOf(MadeAt.AddDays(3)));
     }
 
     [Fact]
     public void Plan_version_starts_at_one()
     {
-        Assert.Throws<ArgumentOutOfRangeException>(() => new Plan(PlanId, GoalId, Owner, 0, PlanStatus.Confirmed, [], 0, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new Plan(PlanId, GoalId, Owner, 0, PlanStatus.Confirmed, [], 0, 0, false, true, MadeAt));
     }
 
     [Fact]
@@ -122,5 +168,5 @@ public sealed class GoalPlanTests
     }
 
     private static Plan Draft(IReadOnlyList<PlanSlot> slots, decimal expectedCostEur = 1m, decimal arrivalCostEur = 2m) =>
-        new(PlanId, GoalId, Owner, 1, PlanStatus.Draft, slots, expectedCostEur, arrivalCostEur, OneAm.AddMinutes(-50));
+        new(PlanId, GoalId, Owner, 1, PlanStatus.Draft, slots, expectedCostEur, arrivalCostEur, false, true, MadeAt, MadeAt.AddMinutes(10));
 }
