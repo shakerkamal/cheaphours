@@ -48,6 +48,19 @@ public sealed class MongoIndexesTests(MongoFixture mongo)
     }
 
     [Fact]
+    public async Task Creates_the_price_indexes()
+    {
+        await MongoIndexes.EnsureAsync(_database, TestContext.Current.CancellationToken);
+
+        var prices = await IndexesAsync(MongoIndexes.Prices);
+        var zoneStart = Assert.Single(prices, i => i["name"] == "zone_start" && i["key"].AsBsonDocument == new BsonDocument { { "zone", 1 }, { "start", 1 } });
+        Assert.True(zoneStart.GetValue("unique", false).ToBoolean());
+
+        var priceDays = await IndexesAsync(MongoIndexes.PriceDays);
+        Assert.Equal([new BsonDocument("_id", 1)], priceDays.Select(i => i["key"].AsBsonDocument));
+    }
+
+    [Fact]
     public async Task Creates_telemetry_as_an_expiring_time_series()
     {
         var ct = TestContext.Current.CancellationToken;

@@ -1,5 +1,6 @@
 using CheapHours.Host.Devices;
 using CheapHours.Host.Polling;
+using CheapHours.Host.Prices;
 using CheapHours.Messaging;
 using CheapHours.Persistence;
 using CheapHours.Persistence.Telemetry;
@@ -63,9 +64,17 @@ internal static class WorkerRole
         services.AddSingleton<DeviceEventIngestor>();
         services.AddSingleton<IPollRecorder, PollResultRecorder>();
 
+        // Day-ahead prices: the job is always registered (tests drive single runs), but runs only when enabled.
+        services.AddPriceSource();
+        services.AddSingleton<PriceImportJob>();
+
         services.AddHostedService<WorkerStartup>();
         services.AddHostedService<TelemetryConsumerService>();
         services.AddHostedService<PollingCoordinator>();
+        if (configuration.GetValue(PricesOptions.SectionName + ":" + nameof(PricesOptions.ImportEnabled), defaultValue: true))
+        {
+            services.AddHostedService(sp => sp.GetRequiredService<PriceImportJob>());
+        }
 
         configure?.Invoke(services);
         return builder.Build();

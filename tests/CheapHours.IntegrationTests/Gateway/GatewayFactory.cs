@@ -104,7 +104,8 @@ public sealed class GatewayFactory : WebApplicationFactory<Program>
     public async Task WaitUntilReadyAsync()
     {
         using var client = CreateClient();
-        for (var i = 0; i < 100; i++)
+        // Up to 30 s, as for worker hosts: a loaded machine creating many test databases at once can be slow.
+        for (var i = 0; i < 300; i++)
         {
             using var response = await client.GetAsync(new Uri("/health/ready", UriKind.Relative), TestContext.Current.CancellationToken);
             if (response.StatusCode == HttpStatusCode.OK)

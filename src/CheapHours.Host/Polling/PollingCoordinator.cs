@@ -16,7 +16,7 @@ namespace CheapHours.Host.Polling;
 /// takes over within one acquire interval.
 /// </summary>
 internal sealed partial class PollingCoordinator(
-    IPollingLease lease,
+    [FromKeyedServices(LeaseNames.DevicePolling)] ILease lease,
     IEnumerable<IPollingProvider> providers,
     IEnumerable<ProviderPollingSettings> settings,
     IPollingSchedule schedule,

@@ -25,37 +25,17 @@ public sealed class MessagingTopology
 
         EventsExchange = prefix + "cheaphours.events";
         Telemetry = new ConsumerQueues(prefix + "worker.telemetry");
+        Planner = new ConsumerQueues(prefix + "worker.planner");
 
-        var queues = new List<QueueDefinition>
-        {
-            new(Telemetry.Main, new Dictionary<string, object?>
-            {
-                ["x-queue-type"] = QuorumQueue,
-                ["x-delivery-limit"] = DeliveryLimit,
-                ["x-dead-letter-exchange"] = string.Empty,
-                ["x-dead-letter-routing-key"] = Telemetry.DeadLetter,
-                ["x-dead-letter-strategy"] = "at-least-once",
-                ["x-overflow"] = "reject-publish",
-            }),
-        };
-
-        for (var i = 0; i < Telemetry.Retries.Count; i++)
-        {
-            queues.Add(new QueueDefinition(Telemetry.Retries[i], new Dictionary<string, object?>
-            {
-                ["x-queue-type"] = QuorumQueue,
-                ["x-message-ttl"] = (int)options.RetryDelays[i].TotalMilliseconds,
-                ["x-dead-letter-exchange"] = string.Empty,
-                ["x-dead-letter-routing-key"] = Telemetry.Main,
-                ["x-dead-letter-strategy"] = "at-least-once",
-                ["x-overflow"] = "reject-publish",
-            }));
-        }
-
-        queues.Add(new QueueDefinition(Telemetry.DeadLetter, new Dictionary<string, object?> { ["x-queue-type"] = QuorumQueue }));
-
+        var queues = new List<QueueDefinition>();
+        AddConsumer(queues, Telemetry, options);
+        AddConsumer(queues, Planner, options);
         Queues = queues;
-        Bindings = [new BindingDefinition(EventsExchange, Telemetry.Main, TelemetryReceived.TypeName)];
+        Bindings =
+        [
+            new BindingDefinition(EventsExchange, Telemetry.Main, TelemetryReceived.TypeName),
+            new BindingDefinition(EventsExchange, Planner.Main, PricesPublished.TypeName),
+        ];
     }
 
     /// <summary>Gets the topic exchange every message is published to.</summary>
@@ -64,9 +44,42 @@ public sealed class MessagingTopology
     /// <summary>Gets the telemetry consumer's queues.</summary>
     public ConsumerQueues Telemetry { get; }
 
+    /// <summary>Gets the planner consumer's queues (re-planning on <see cref="PricesPublished"/>).</summary>
+    public ConsumerQueues Planner { get; }
+
     /// <summary>Gets every queue to declare, with its arguments.</summary>
     public IReadOnlyList<QueueDefinition> Queues { get; }
 
     /// <summary>Gets every binding to declare.</summary>
     public IReadOnlyList<BindingDefinition> Bindings { get; }
+
+    // One consumer's main queue, its delay queues (each dead-letters back into the main queue after its delay)
+    // and its dead-letter queue, all with the same settings for every consumer.
+    private static void AddConsumer(List<QueueDefinition> queues, ConsumerQueues consumer, MessagingOptions options)
+    {
+        queues.Add(new QueueDefinition(consumer.Main, new Dictionary<string, object?>
+        {
+            ["x-queue-type"] = QuorumQueue,
+            ["x-delivery-limit"] = DeliveryLimit,
+            ["x-dead-letter-exchange"] = string.Empty,
+            ["x-dead-letter-routing-key"] = consumer.DeadLetter,
+            ["x-dead-letter-strategy"] = "at-least-once",
+            ["x-overflow"] = "reject-publish",
+        }));
+
+        for (var i = 0; i < consumer.Retries.Count; i++)
+        {
+            queues.Add(new QueueDefinition(consumer.Retries[i], new Dictionary<string, object?>
+            {
+                ["x-queue-type"] = QuorumQueue,
+                ["x-message-ttl"] = (int)options.RetryDelays[i].TotalMilliseconds,
+                ["x-dead-letter-exchange"] = string.Empty,
+                ["x-dead-letter-routing-key"] = consumer.Main,
+                ["x-dead-letter-strategy"] = "at-least-once",
+                ["x-overflow"] = "reject-publish",
+            }));
+        }
+
+        queues.Add(new QueueDefinition(consumer.DeadLetter, new Dictionary<string, object?> { ["x-queue-type"] = QuorumQueue }));
+    }
 }

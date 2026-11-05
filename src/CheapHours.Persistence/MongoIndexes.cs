@@ -30,6 +30,12 @@ public static class MongoIndexes
     /// <summary>Leases, such as the polling leader's.</summary>
     public const string Locks = "locks";
 
+    /// <summary>Day-ahead prices, one document per zone and 15-minute slot.</summary>
+    public const string Prices = "prices";
+
+    /// <summary>The price import's progress per zone and day.</summary>
+    public const string PriceDays = "priceDays";
+
     /// <summary>How long readings are kept.</summary>
     public static readonly TimeSpan TelemetryRetention = TimeSpan.FromDays(30);
 
@@ -55,6 +61,14 @@ public static class MongoIndexes
 
         // locks holds one document per lease, looked up by _id only.
         await EnsureCollectionAsync(database, Locks, cancellationToken).ConfigureAwait(false);
+
+        // priceDays holds one document per zone and day, looked up by _id only.
+        await EnsureCollectionAsync(database, PriceDays, cancellationToken).ConfigureAwait(false);
+
+        // One price per zone and slot; also serves range reads by zone in time order.
+        await database.GetCollection<BsonDocument>(Prices).Indexes.CreateOneAsync(
+            new CreateIndexModel<BsonDocument>(keys.Ascending("zone").Ascending("start"), new CreateIndexOptions { Name = "zone_start", Unique = true }),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
 
         await database.GetCollection<BsonDocument>(ProviderAccounts).Indexes.CreateManyAsync(
             [

@@ -3,6 +3,7 @@ using CheapHours.Persistence.ChargePoints;
 using CheapHours.Persistence.Connections;
 using CheapHours.Persistence.Devices;
 using CheapHours.Persistence.Locks;
+using CheapHours.Persistence.Prices;
 using CheapHours.Persistence.ProviderAccounts;
 using CheapHours.Persistence.Telemetry;
 using CheapHours.Providers.Kit;
@@ -78,7 +79,14 @@ public static class MongoSetup
         services.AddSingleton<ProviderAccountStore>();
         services.AddSingleton<IProviderAccountRepository>(sp => sp.GetRequiredService<ProviderAccountStore>());
         services.AddSingleton<IPollingSchedule>(sp => sp.GetRequiredService<ProviderAccountStore>());
-        services.AddSingleton<IPollingLease, PollingLease>();
+        foreach (var lease in LeaseNames.All)
+        {
+            services.AddKeyedSingleton<ILease>(lease, (sp, key) =>
+                new NamedLease(sp.GetRequiredService<IMongoDatabase>(), sp.GetRequiredService<TimeProvider>(), (string)key!));
+        }
+
+        services.AddSingleton<IPriceStore, PriceStore>();
+        services.AddSingleton<IPriceDayStore, PriceDayStore>();
         return services;
     }
 }

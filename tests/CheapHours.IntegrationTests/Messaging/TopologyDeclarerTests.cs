@@ -34,7 +34,31 @@ public sealed class TopologyDeclarerTests(RabbitMqFixture rabbit) : IAsyncLifeti
             Assert.Equal(0u, ok.MessageCount);
         }
 
-        Assert.Equal(5, topology.Queues.Count);
+        Assert.Equal(10, topology.Queues.Count);
+    }
+
+    [Fact]
+    public async Task The_binding_routes_prices_to_the_planner_and_not_to_telemetry()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var topology = NewTopology();
+        await TopologyDeclarer.DeclareAsync(_connection.Current, topology, ct);
+
+        await using var channel = await _connection.Current.CreateChannelAsync(cancellationToken: ct);
+        await channel.BasicPublishAsync(topology.EventsExchange, PricesPublished.TypeName, Encoding.UTF8.GetBytes("{}"), ct);
+
+        BasicGetResult? got = null;
+        for (var i = 0; i < 50 && got is null; i++)
+        {
+            got = await channel.BasicGetAsync(topology.Planner.Main, autoAck: true, ct);
+            if (got is null)
+            {
+                await Task.Delay(100, ct);
+            }
+        }
+
+        Assert.NotNull(got);
+        Assert.Equal(0u, (await channel.QueueDeclarePassiveAsync(topology.Telemetry.Main, ct)).MessageCount);
     }
 
     [Fact]

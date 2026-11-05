@@ -26,11 +26,37 @@ public sealed class MessagingTopologyTests
     }
 
     [Fact]
-    public void Telemetry_is_bound_to_the_events_exchange_by_message_type()
+    public void Consumers_are_bound_to_the_events_exchange_by_message_type()
     {
-        var binding = Assert.Single(Default.Bindings);
+        Assert.Equal(
+            [
+                new BindingDefinition("cheaphours.events", "worker.telemetry", "TelemetryReceived"),
+                new BindingDefinition("cheaphours.events", "worker.planner", "PricesPublished"),
+            ],
+            Default.Bindings);
+    }
 
-        Assert.Equal(new BindingDefinition("cheaphours.events", "worker.telemetry", "TelemetryReceived"), binding);
+    [Fact]
+    public void Planner_queues_follow_the_design()
+    {
+        Assert.Equal("worker.planner", Default.Planner.Main);
+        Assert.Equal(["worker.planner.retry.1", "worker.planner.retry.2", "worker.planner.retry.3"], Default.Planner.Retries);
+        Assert.Equal("worker.planner.dlq", Default.Planner.DeadLetter);
+        Assert.Equal(10, Default.Queues.Count);
+    }
+
+    [Fact]
+    public void Planner_queues_have_the_same_settings_as_telemetry()
+    {
+        string Rename(string name) => name.Replace("worker.telemetry", "worker.planner", StringComparison.Ordinal);
+
+        Assert.All(Default.Queues.Where(q => q.Name.StartsWith("worker.telemetry", StringComparison.Ordinal)), telemetry =>
+        {
+            var planner = Queue(Rename(telemetry.Name));
+            Assert.Equal(
+                telemetry.Arguments.ToDictionary(a => a.Key, a => a.Value is string s ? Rename(s) : a.Value),
+                planner.Arguments);
+        });
     }
 
     [Fact]

@@ -13,7 +13,7 @@ public sealed class PollingLeaseTests(MongoFixture mongo) : IAsyncLifetime
     private readonly FakeTimeProvider _time = new(new DateTimeOffset(2026, 10, 28, 18, 0, 0, TimeSpan.Zero));
     private IMongoDatabase _database = null!;
 
-    private PollingLease Lease => new(_database, _time);
+    private NamedLease Lease => new(_database, _time, LeaseNames.DevicePolling);
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 

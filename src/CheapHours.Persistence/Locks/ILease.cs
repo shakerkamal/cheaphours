@@ -1,8 +1,11 @@
 namespace CheapHours.Persistence.Locks;
 
-/// <summary>The lease that picks the one worker replica that polls vendor clouds.</summary>
-public interface IPollingLease
+/// <summary>A named lease that lets exactly one worker replica do a job at a time (one document in <c>locks</c>).</summary>
+public interface ILease
 {
+    /// <summary>Gets the lease's name, which is its document id.</summary>
+    string Name { get; }
+
     /// <summary>Acquires the lease, or renews it when <paramref name="holder"/> already holds it.</summary>
     /// <param name="holder">This replica's id.</param>
     /// <param name="duration">How long the lease lasts unless renewed.</param>

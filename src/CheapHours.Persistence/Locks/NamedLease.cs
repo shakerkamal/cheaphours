@@ -4,18 +4,19 @@ using MongoDB.Driver;
 namespace CheapHours.Persistence.Locks;
 
 /// <summary>
-/// The polling lease on <c>locks</c> (design §5): one document <c>{ _id: "device-polling", holder, expiresAt }</c>.
-/// Acquire and renew are one upsert filtered on the lease being expired or already ours; a duplicate-key
-/// error means another replica holds it. Release deletes it only when it is ours.
+/// A lease on <c>locks</c>: one document <c>{ _id: name, holder, expiresAt }</c>. Acquire and renew are one upsert
+/// filtered on the lease being expired or already ours; a duplicate-key error means another replica holds it.
+/// Release deletes it only when it is ours. Leases with different names never block each other.
 /// </summary>
 /// <param name="database">The database.</param>
 /// <param name="time">The clock.</param>
-public sealed class PollingLease(IMongoDatabase database, TimeProvider time) : IPollingLease
+/// <param name="name">The lease's name (see <see cref="LeaseNames"/>).</param>
+public sealed class NamedLease(IMongoDatabase database, TimeProvider time, string name) : ILease
 {
-    /// <summary>The lease's id.</summary>
-    public const string Name = "device-polling";
-
     private readonly IMongoCollection<BsonDocument> _locks = (database ?? throw new ArgumentNullException(nameof(database))).GetCollection<BsonDocument>(MongoIndexes.Locks);
+
+    /// <inheritdoc/>
+    public string Name { get; } = string.IsNullOrWhiteSpace(name) ? throw new ArgumentException("A lease needs a name.", nameof(name)) : name;
 
     /// <inheritdoc/>
     public async Task<bool> TryAcquireAsync(string holder, TimeSpan duration, CancellationToken cancellationToken)

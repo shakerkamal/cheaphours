@@ -34,6 +34,10 @@ internal static class WorkerHost
             $"--Mongo:Database={database}",
             $"--ConnectionStrings:RabbitMq={rabbit.ConnectionString}",
             $"--Messaging:QueuePrefix={prefix}",
+
+            // No test reaches the real price API: the import is off unless a test turns it on (later values win).
+            "--Prices:ImportEnabled=false",
+            "--Prices:BaseUrl=http://127.0.0.1:9/",
             .. settings.Select(kv => $"--{kv.Key}={kv.Value}"),
         ];
         var host = WorkerRole.Build(args, services =>

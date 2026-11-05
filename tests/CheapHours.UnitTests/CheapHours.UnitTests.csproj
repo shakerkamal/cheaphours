@@ -5,6 +5,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Recorded Energy-Charts responses, unchanged (CC BY 4.0, Bundesnetzagentur | SMARD.de). -->
+    <None Include="Prices\Fixtures\*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\CheapHours.Core\CheapHours.Core.csproj" />
     <ProjectReference Include="..\..\src\CheapHours.Messaging\CheapHours.Messaging.csproj" />
     <ProjectReference Include="..\..\src\CheapHours.Messaging.Contracts\CheapHours.Messaging.Contracts.csproj" />

@@ -47,7 +47,8 @@ public sealed class PollingLeaderTests(MongoFixture mongo, RabbitMqFixture rabbi
             services.AddSingleton(new ProviderPollingSettings(typeof(CountingProvider), Interval, TimeSpan.FromSeconds(1)));
             if (!releasesLease)
             {
-                services.AddSingleton<IPollingLease>(sp => new LeaseWithoutRelease(new PollingLease(sp.GetRequiredService<IMongoDatabase>(), TimeProvider.System)));
+                services.AddKeyedSingleton<ILease>(LeaseNames.DevicePolling, (sp, _) =>
+                    new LeaseWithoutRelease(new NamedLease(sp.GetRequiredService<IMongoDatabase>(), TimeProvider.System, LeaseNames.DevicePolling)));
             }
         });
     }
@@ -137,8 +138,10 @@ public sealed class PollingLeaderTests(MongoFixture mongo, RabbitMqFixture rabbi
     }
 
     /// <summary>Stands for a replica that dies: its lease is never released.</summary>
-    private sealed class LeaseWithoutRelease(IPollingLease inner) : IPollingLease
+    private sealed class LeaseWithoutRelease(ILease inner) : ILease
     {
+        public string Name => inner.Name;
+
         public Task<bool> TryAcquireAsync(string holder, TimeSpan duration, CancellationToken cancellationToken) =>
             inner.TryAcquireAsync(holder, duration, cancellationToken);
 

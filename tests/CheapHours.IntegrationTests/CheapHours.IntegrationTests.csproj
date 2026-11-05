@@ -8,6 +8,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The recorded Energy-Charts responses kept with the unit tests (CC BY 4.0, Bundesnetzagentur | SMARD.de). -->
+    <None Include="..\CheapHours.UnitTests\Prices\Fixtures\*.json" Link="Prices\Fixtures\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\CheapHours.Core\CheapHours.Core.csproj" />
     <ProjectReference Include="..\..\src\CheapHours.Host\CheapHours.Host.csproj" />
     <ProjectReference Include="..\..\src\CheapHours.Messaging\CheapHours.Messaging.csproj" />
