@@ -52,7 +52,7 @@ public sealed class NamedLeaseTests(MongoFixture mongo) : IAsyncLifetime
     {
         Assert.True(await Lease(LeaseNames.PriceImport).TryAcquireAsync("replica-a", Duration, Ct));
 
-        var ran = await LeasedRun.RunAsync(Lease(LeaseNames.DevicePolling), "replica-b", Duration, _time, _ => Task.CompletedTask, Ct);
+        var ran = await LeasedRun.RunAsync(Lease(LeaseNames.PlanDrift), "replica-b", Duration, _time, _ => Task.CompletedTask, Ct);
 
         Assert.True(ran);
         Assert.False(await Lease(LeaseNames.PriceImport).TryAcquireAsync("replica-b", Duration, Ct));
@@ -79,7 +79,7 @@ public sealed class NamedLeaseTests(MongoFixture mongo) : IAsyncLifetime
     public async Task Job_is_cancelled_at_half_the_lease()
     {
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var run = LeasedRun.RunAsync(Lease(LeaseNames.DevicePolling), "replica-a", Duration, _time, async ct =>
+        var run = LeasedRun.RunAsync(Lease(LeaseNames.PlanDrift), "replica-a", Duration, _time, async ct =>
         {
             started.SetResult();
             await Task.Delay(Timeout.InfiniteTimeSpan, ct);
@@ -89,7 +89,7 @@ public sealed class NamedLeaseTests(MongoFixture mongo) : IAsyncLifetime
         _time.Advance(Duration / 2);
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => run);
-        Assert.True(await Lease(LeaseNames.DevicePolling).TryAcquireAsync("replica-b", Duration, Ct));
+        Assert.True(await Lease(LeaseNames.PlanDrift).TryAcquireAsync("replica-b", Duration, Ct));
     }
 
     // Each test keeps its leases apart from the others in the shared database by a suffix.

@@ -36,6 +36,15 @@ public static class MongoIndexes
     /// <summary>The price import's progress per zone and day.</summary>
     public const string PriceDays = "priceDays";
 
+    /// <summary>Charging goals.</summary>
+    public const string Goals = "goals";
+
+    /// <summary>Which open goal holds each vehicle and charger.</summary>
+    public const string GoalClaims = "goalClaims";
+
+    /// <summary>Plan versions, one document per goal plan and version.</summary>
+    public const string Plans = "plans";
+
     /// <summary>How long readings are kept.</summary>
     public static readonly TimeSpan TelemetryRetention = TimeSpan.FromDays(30);
 
@@ -62,8 +71,25 @@ public static class MongoIndexes
         // locks holds one document per lease, looked up by _id only.
         await EnsureCollectionAsync(database, Locks, cancellationToken).ConfigureAwait(false);
 
-        // priceDays holds one document per zone and day, looked up by _id only.
+        // priceDays (one document per zone and day) and goalClaims (one per device) are looked up by _id only.
         await EnsureCollectionAsync(database, PriceDays, cancellationToken).ConfigureAwait(false);
+        await EnsureCollectionAsync(database, GoalClaims, cancellationToken).ConfigureAwait(false);
+
+        await database.GetCollection<BsonDocument>(Goals).Indexes.CreateManyAsync(
+            [
+                // Owner-scoped reads by id; the worker's open goals and savings by departure.
+                new CreateIndexModel<BsonDocument>(keys.Ascending("ownerId").Ascending("_id"), new CreateIndexOptions { Name = "ownerId_id" }),
+                new CreateIndexModel<BsonDocument>(keys.Ascending("departureAt"), new CreateIndexOptions { Name = "departureAt" }),
+            ],
+            cancellationToken).ConfigureAwait(false);
+
+        await database.GetCollection<BsonDocument>(Plans).Indexes.CreateManyAsync(
+            [
+                // The current version is the highest; the _id ({planId}:v{version}) keeps versions unique.
+                new CreateIndexModel<BsonDocument>(keys.Ascending("goalId").Descending("version"), new CreateIndexOptions { Name = "goalId_version" }),
+                new CreateIndexModel<BsonDocument>(keys.Ascending("ownerId").Ascending("goalId"), new CreateIndexOptions { Name = "ownerId_goalId" }),
+            ],
+            cancellationToken).ConfigureAwait(false);
 
         // One price per zone and slot; also serves range reads by zone in time order.
         await database.GetCollection<BsonDocument>(Prices).Indexes.CreateOneAsync(

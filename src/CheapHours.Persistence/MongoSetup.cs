@@ -2,6 +2,8 @@ using CheapHours.Persistence.ApiKeys;
 using CheapHours.Persistence.ChargePoints;
 using CheapHours.Persistence.Connections;
 using CheapHours.Persistence.Devices;
+using CheapHours.Persistence.Goals;
+using CheapHours.Persistence.Plans;
 using CheapHours.Persistence.Locks;
 using CheapHours.Persistence.Prices;
 using CheapHours.Persistence.ProviderAccounts;
@@ -87,6 +89,8 @@ public static class MongoSetup
 
         services.AddSingleton<IPriceStore, PriceStore>();
         services.AddSingleton<IPriceDayStore, PriceDayStore>();
+        services.AddSingleton<IGoalStore, GoalStore>();
+        services.AddSingleton<IPlanStore, PlanStore>();
         return services;
     }
 }

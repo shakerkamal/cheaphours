@@ -9,6 +9,9 @@ public static class LeaseNames
     /// <summary>One replica imports day-ahead prices per run.</summary>
     public const string PriceImport = "price-import";
 
+    /// <summary>One replica checks confirmed plans for charge drift per run.</summary>
+    public const string PlanDrift = "plan-drift";
+
     /// <summary>Gets every lease name.</summary>
-    public static IReadOnlyList<string> All { get; } = [DevicePolling, PriceImport];
+    public static IReadOnlyList<string> All { get; } = [DevicePolling, PriceImport, PlanDrift];
 }

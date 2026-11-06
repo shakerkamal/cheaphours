@@ -61,6 +61,23 @@ public sealed class MongoIndexesTests(MongoFixture mongo)
     }
 
     [Fact]
+    public async Task Creates_the_goal_and_plan_indexes()
+    {
+        await MongoIndexes.EnsureAsync(_database, TestContext.Current.CancellationToken);
+
+        var goals = await IndexesAsync(MongoIndexes.Goals);
+        Assert.Single(goals, i => i["key"].AsBsonDocument == new BsonDocument { { "ownerId", 1 }, { "_id", 1 } });
+        Assert.Single(goals, i => i["key"].AsBsonDocument == new BsonDocument("departureAt", 1));
+
+        var plans = await IndexesAsync(MongoIndexes.Plans);
+        Assert.Single(plans, i => i["key"].AsBsonDocument == new BsonDocument { { "goalId", 1 }, { "version", -1 } });
+        Assert.Single(plans, i => i["key"].AsBsonDocument == new BsonDocument { { "ownerId", 1 }, { "goalId", 1 } });
+
+        var claims = await IndexesAsync(MongoIndexes.GoalClaims);
+        Assert.Equal([new BsonDocument("_id", 1)], claims.Select(i => i["key"].AsBsonDocument));
+    }
+
+    [Fact]
     public async Task Creates_telemetry_as_an_expiring_time_series()
     {
         var ct = TestContext.Current.CancellationToken;
