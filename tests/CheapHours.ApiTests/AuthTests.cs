@@ -15,7 +15,7 @@ public sealed class AuthTests(ApiFactory factory) : IClassFixture<ApiFactory>
     private static readonly Uri Confirm = new("/v1/plans/plan_1/confirm", UriKind.Relative);
 
     // A read endpoint that is not built yet, so passing auth shows as 501 without a database.
-    private static readonly Uri Savings = new("/v1/savings?from=2026-10-01T00:00:00Z&to=2026-10-02T00:00:00Z", UriKind.Relative);
+    private static readonly Uri UnbuiltRead = new("/v1/commands/cmd_1", UriKind.Relative);
 
     [Fact]
     public void Test_host_does_not_read_the_developers_user_secrets()
@@ -65,7 +65,7 @@ public sealed class AuthTests(ApiFactory factory) : IClassFixture<ApiFactory>
     {
         using var client = factory.CreateClient(ApiFactory.ExecuteKey);
 
-        using var read = await client.GetAsync(Savings, TestContext.Current.CancellationToken);
+        using var read = await client.GetAsync(UnbuiltRead, TestContext.Current.CancellationToken);
         using var execute = await client.PostAsync(Confirm, content: null, TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.NotImplemented, read.StatusCode);

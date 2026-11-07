@@ -3,12 +3,16 @@ using CheapHours.Host.Api.Auth;
 using CheapHours.Host.Api.Devices;
 using CheapHours.Host.Api.Dtos;
 using CheapHours.Host.Api.Errors;
+using CheapHours.Host.Api.Goals;
+using CheapHours.Host.Api.Idempotency;
+using CheapHours.Host.Api.Prices;
+using CheapHours.Host.Api.Savings;
 using Microsoft.AspNetCore.Mvc;
 
 namespace CheapHours.Host.Api;
 
 /// <summary>
-/// The ten <c>/v1</c> endpoints. Their contract (paths, scopes, parameters, response types) is fixed here;
+/// The eleven <c>/v1</c> endpoints. Their contract (paths, scopes, parameters, response types) is fixed here;
 /// built endpoints point at their handlers, the others answer 501 until the feature named in their stub builds them.
 /// </summary>
 internal static class V1Endpoints
@@ -35,15 +39,19 @@ internal static class V1Endpoints
             .ProducesProblem(StatusCodes.Status400BadRequest).ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict).ProducesProblem(StatusCodes.Status422UnprocessableEntity);
 
-        v1.MapGet("/prices", ListPrices).WithTags("Prices").WithName("ListPrices").WithSummary("Day-ahead price slots in EUR/MWh.")
+        v1.MapGet("/prices", PriceEndpoints.ListAsync).WithTags("Prices").WithName("ListPrices").WithSummary("Day-ahead price slots in EUR/MWh.")
             .RequireAuthorization(ApiScopes.ReadPolicy).Produces<Page<PriceSlotDto>>().ProducesProblem(StatusCodes.Status400BadRequest);
 
         var goals = v1.MapGroup("/goals").WithTags("Goals and plans");
-        goals.MapPost("/", CreateGoal).WithName("CreateGoal").WithSummary("Set a goal; returns a draft plan.")
+        goals.MapPost("/", GoalEndpoints.CreateAsync).Idempotent().WithName("CreateGoal").WithSummary("Set a goal; returns a draft plan.")
             .RequireAuthorization(ApiScopes.ReadPolicy).Produces<GoalCreatedResponse>(StatusCodes.Status201Created)
             .ProducesProblem(StatusCodes.Status400BadRequest).ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict).ProducesProblem(StatusCodes.Status422UnprocessableEntity);
-        goals.MapGet("/{id}/plan", GetPlan).WithName("GetGoalPlan").WithSummary("The goal's current plan with cost and savings.")
+        goals.MapPatch("/{id}", GoalEndpoints.UpdateAsync).WithName("UpdateGoal").WithSummary("Change a goal's target or departure; returns a new draft plan.")
+            .RequireAuthorization(ApiScopes.ReadPolicy).Produces<GoalUpdatedResponse>()
+            .ProducesProblem(StatusCodes.Status400BadRequest).ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status409Conflict).ProducesProblem(StatusCodes.Status422UnprocessableEntity);
+        goals.MapGet("/{id}/plan", GoalEndpoints.GetPlanAsync).WithName("GetGoalPlan").WithSummary("The goal's current plan with cost and savings.")
             .RequireAuthorization(ApiScopes.ReadPolicy).Produces<PlanDto>().ProducesProblem(StatusCodes.Status400BadRequest).ProducesProblem(StatusCodes.Status404NotFound);
 
         v1.MapPost("/plans/{id}/confirm", ConfirmPlan).WithTags("Goals and plans").WithName("ConfirmPlan").WithSummary("Turn a draft plan into commands.")
@@ -54,7 +62,7 @@ internal static class V1Endpoints
         v1.MapGet("/commands/{id}", GetCommand).WithTags("Commands").WithName("GetCommand").WithSummary("A command's state and history.")
             .RequireAuthorization(ApiScopes.ReadPolicy).Produces<CommandDto>().ProducesProblem(StatusCodes.Status400BadRequest).ProducesProblem(StatusCodes.Status404NotFound);
 
-        v1.MapGet("/savings", GetSavings).WithTags("Savings").WithName("GetSavings").WithSummary("Savings over a period, against charging on arrival.")
+        v1.MapGet("/savings", SavingsEndpoints.GetAsync).WithTags("Savings").WithName("GetSavings").WithSummary("Savings over a period, against charging on arrival.")
             .RequireAuthorization(ApiScopes.ReadPolicy).Produces<SavingsDto>().ProducesProblem(StatusCodes.Status400BadRequest);
 
         return v1;
@@ -62,17 +70,9 @@ internal static class V1Endpoints
 
     private static IResult SendCommand(DeviceId id, CreateCommandRequest body, [FromHeader(Name = IdempotencyKeyHeader)] string? idempotencyKey) => NotYet("command dispatch");
 
-    private static IResult ListPrices(string zone, DateTimeOffset from, DateTimeOffset to, string? cursor, int? limit) => NotYet("the prices and planner feature");
-
-    private static IResult CreateGoal(CreateGoalRequest body, [FromHeader(Name = IdempotencyKeyHeader)] string? idempotencyKey) => NotYet("the prices and planner feature");
-
-    private static IResult GetPlan(GoalId id) => NotYet("the prices and planner feature");
-
     private static IResult ConfirmPlan(PlanId id, [FromHeader(Name = IdempotencyKeyHeader)] string? idempotencyKey) => NotYet("command dispatch");
 
     private static IResult GetCommand(CommandId id) => NotYet("command dispatch");
-
-    private static IResult GetSavings(DateTimeOffset from, DateTimeOffset to) => NotYet("the prices and planner feature");
 
     private static IResult NotYet(string feature) =>
         ErrorCatalogue.NotImplemented.ToResult($"This endpoint is not built yet; it arrives with {feature}.");

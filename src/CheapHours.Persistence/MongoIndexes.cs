@@ -45,6 +45,9 @@ public static class MongoIndexes
     /// <summary>Plan versions, one document per goal plan and version.</summary>
     public const string Plans = "plans";
 
+    /// <summary>Requests made under an <c>Idempotency-Key</c>, per owner and key, with their responses.</summary>
+    public const string IdempotencyKeys = "idempotencyKeys";
+
     /// <summary>How long readings are kept.</summary>
     public static readonly TimeSpan TelemetryRetention = TimeSpan.FromDays(30);
 
@@ -125,6 +128,11 @@ public static class MongoIndexes
 
         await database.GetCollection<BsonDocument>(Inbox).Indexes.CreateOneAsync(
             new CreateIndexModel<BsonDocument>(keys.Ascending("handledAt"), new CreateIndexOptions { Name = "handledAt_ttl", ExpireAfter = InboxRetention }),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+
+        // Each record carries its own expiry; the monitor deletes it then (reads also treat it as absent).
+        await database.GetCollection<BsonDocument>(IdempotencyKeys).Indexes.CreateOneAsync(
+            new CreateIndexModel<BsonDocument>(keys.Ascending("expiresAt"), new CreateIndexOptions { Name = "expiresAt_ttl", ExpireAfter = TimeSpan.Zero }),
             cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 

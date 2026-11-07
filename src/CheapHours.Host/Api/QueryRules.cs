@@ -80,6 +80,17 @@ internal sealed class QueryRules
         }
     }
 
+    /// <summary>Checks <c>zone</c>: the one bidding zone this deployment serves.</summary>
+    /// <param name="zone">The value sent.</param>
+    /// <param name="served">The configured zone.</param>
+    public void Zone(string? zone, string served)
+    {
+        if (!string.Equals(zone, served, StringComparison.Ordinal))
+        {
+            Add("zone", $"Unknown bidding zone; this API serves '{served}'.");
+        }
+    }
+
     /// <summary>Checks <c>resolution</c>: absent or <c>15m</c>.</summary>
     /// <param name="resolution">The value sent, if any.</param>
     public void Resolution(string? resolution)

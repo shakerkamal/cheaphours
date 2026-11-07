@@ -33,6 +33,7 @@ internal sealed record GoalCreatedResponse(GoalDto Goal, PlanDto Plan);
 /// <param name="ArrivalCostEur">The cost of charging on arrival instead, in EUR.</param>
 /// <param name="SavingsEur">The difference, in EUR.</param>
 /// <param name="TargetMissed">Whether the available slots cannot reach the target before departure.</param>
+/// <param name="PricesComplete">Whether every chosen slot and every slot of charging on arrival had a published price; when not, unpriced slots add nothing to either cost.</param>
 /// <param name="ExpiresAt">When a draft expires (UTC); absent once confirmed.</param>
 internal sealed record PlanDto(
     PlanId Id,
@@ -44,7 +45,18 @@ internal sealed record PlanDto(
     decimal ArrivalCostEur,
     decimal SavingsEur,
     bool TargetMissed,
+    bool PricesComplete,
     DateTimeOffset? ExpiresAt);
+
+/// <summary>The body of <c>PATCH /v1/goals/{id}</c>: the values to change; at least one is required.</summary>
+/// <param name="TargetSocPercent">The new target state of charge, 1–100, or absent to keep it.</param>
+/// <param name="DepartureAt">The new departure (UTC), or absent to keep it.</param>
+internal sealed record UpdateGoalRequest(int? TargetSocPercent = null, DateTimeOffset? DepartureAt = null);
+
+/// <summary>The response to <c>PATCH /v1/goals/{id}</c>: the changed goal and its new draft plan.</summary>
+/// <param name="Goal">The goal with its new values.</param>
+/// <param name="Plan">Its current plan; confirm it before it expires.</param>
+internal sealed record GoalUpdatedResponse(GoalDto Goal, PlanDto Plan);
 
 /// <summary>One slot of a plan.</summary>
 /// <param name="Start">Slot start (UTC).</param>

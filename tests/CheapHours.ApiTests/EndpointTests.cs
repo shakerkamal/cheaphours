@@ -14,6 +14,7 @@ public sealed class EndpointTests(ApiFactory factory) : IClassFixture<ApiFactory
         { "GET", $"/v1/devices/dev_wallbox_01/telemetry?{Range}&resolution=15m", null },
         { "GET", $"/v1/prices?zone=DE-LU&{Range}", null },
         { "POST", "/v1/goals", """{"vehicleDeviceId":"dev_car_01","chargerDeviceId":"dev_wallbox_01","targetSocPercent":80,"departureAt":"2026-10-17T05:00:00Z"}""" },
+        { "PATCH", "/v1/goals/goal_1", """{"targetSocPercent":90}""" },
         { "GET", "/v1/goals/goal_1/plan", null },
         { "POST", "/v1/plans/plan_1/confirm", null },
         { "POST", "/v1/devices/dev_wallbox_01/commands", """{"type":"SetPowerLimit","parameters":{"maxPowerW":3700}}""" },
@@ -26,7 +27,11 @@ public sealed class EndpointTests(ApiFactory factory) : IClassFixture<ApiFactory
     {
         get
         {
-            string[] built = ["GET /v1/devices", "GET /v1/devices/dev_wallbox_01", $"GET /v1/devices/dev_wallbox_01/telemetry?{Range}&resolution=15m"];
+            string[] built =
+            [
+                "GET /v1/devices", "GET /v1/devices/dev_wallbox_01", $"GET /v1/devices/dev_wallbox_01/telemetry?{Range}&resolution=15m",
+                $"GET /v1/prices?zone=DE-LU&{Range}", "POST /v1/goals", "PATCH /v1/goals/goal_1", "GET /v1/goals/goal_1/plan", $"GET /v1/savings?{Range}",
+            ];
             var data = new TheoryData<string, string, string?>();
             foreach (var row in V1Endpoints)
             {

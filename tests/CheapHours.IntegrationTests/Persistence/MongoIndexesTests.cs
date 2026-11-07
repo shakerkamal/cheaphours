@@ -61,6 +61,16 @@ public sealed class MongoIndexesTests(MongoFixture mongo)
     }
 
     [Fact]
+    public async Task Idempotency_records_expire_at_their_own_time()
+    {
+        await MongoIndexes.EnsureAsync(_database, TestContext.Current.CancellationToken);
+
+        var keys = await IndexesAsync(MongoIndexes.IdempotencyKeys);
+        var ttl = Assert.Single(keys, i => i["key"].AsBsonDocument == new BsonDocument("expiresAt", 1));
+        Assert.Equal(0, ttl["expireAfterSeconds"].ToInt64());
+    }
+
+    [Fact]
     public async Task Creates_the_goal_and_plan_indexes()
     {
         await MongoIndexes.EnsureAsync(_database, TestContext.Current.CancellationToken);

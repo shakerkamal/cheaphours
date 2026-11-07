@@ -1,6 +1,8 @@
 using CheapHours.Host.Api.Auth;
 using CheapHours.Host.Api.Errors;
+using CheapHours.Host.Api.Idempotency;
 using CheapHours.Host.Api.OpenApi;
+using CheapHours.Host.Goals;
 using CheapHours.Host.Health;
 using CheapHours.Messaging.Contracts.Json;
 using CheapHours.Persistence;
@@ -35,6 +37,7 @@ internal static class ApiRole
 
         builder.Services.TryAddSingleton(TimeProvider.System);
         builder.Services.AddMongoPersistence(builder.Configuration);
+        builder.Services.AddGoalPlanning();
         builder.Services.AddSingleton<ApiState>();
         builder.Services.AddHostedService<ApiStartup>();
         builder.Services.AddHealthChecks()
@@ -48,6 +51,9 @@ internal static class ApiRole
         app.UseStatusCodePages();
         app.UseAuthentication();
         app.UseAuthorization();
+
+        // After authorization, so the key's owner is known; only endpoints marked Idempotent() are affected.
+        app.UseMiddleware<IdempotencyMiddleware>();
 
         app.MapOpenApi("/openapi/{documentName}.json");
         if (app.Environment.IsDevelopment())

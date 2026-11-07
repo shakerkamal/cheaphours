@@ -232,7 +232,58 @@ your machine, the worker polls the car cloud, and the heat-pump cloud posts sign
     `POST /admin/heat-pumps/hp_1/remove` sends `device.deleted`: the heat pump is shown `Offline` and
     kept with its telemetry.
 
-13. **Re-link the car-cloud account.** Revoking it (`curl -s -X POST
+13. **See today's prices.** The worker imports day-ahead prices for `DE-LU` from Energy-Charts when it
+    starts (no key needed), then hourly; tomorrow's arrive from about 13:00 Berlin time. Ask for today's
+    Berlin day, which has 96 slots (92 or 100 on the daylight-saving days). The bash lines need GNU `date`
+    with time-zone data (Linux); Git Bash on Windows has none and silently uses UTC, so use the PowerShell
+    lines there:
+
+    ```sh
+    day=$(TZ=Europe/Berlin date +%F)
+    from=$(date -u -d "TZ=\"Europe/Berlin\" $day 00:00" +%FT%TZ)
+    to=$(date -u -d "TZ=\"Europe/Berlin\" $day 00:00 +1 day" +%FT%TZ)
+    curl -s -H "X-Api-Key: $k" "http://localhost:5080/v1/prices?zone=DE-LU&from=$from&to=$to&limit=200"
+    ```
+
+    ```powershell
+    $tz = [TimeZoneInfo]::FindSystemTimeZoneById('W. Europe Standard Time')
+    $day = [TimeZoneInfo]::ConvertTime([DateTimeOffset]::UtcNow, $tz).Date
+    $from = [TimeZoneInfo]::ConvertTimeToUtc($day, $tz).ToString('s') + 'Z'
+    $to = [TimeZoneInfo]::ConvertTimeToUtc($day.AddDays(1), $tz).ToString('s') + 'Z'
+    curl.exe -s -H "X-Api-Key: $k" "http://localhost:5080/v1/prices?zone=DE-LU&from=$from&to=$to&limit=200"
+    ```
+
+14. **Set a goal and read its plan.** Take the car's and the wallbox's ids from the device list, and pick
+    a target above the car's current charge and a departure within 48 hours. The answer is `201` with a
+    draft plan: the cheapest 15-minute slots before the departure minus 30 minutes, what they cost, what
+    charging straight away would cost, and when the draft expires (10 minutes). Repeating the request
+    with the same `Idempotency-Key` returns the same answer; `PATCH` changes the goal and makes a new
+    draft version:
+
+    ```sh
+    car=dev_...; wallbox=dev_...
+    departure=$(date -u -d 'tomorrow 06:00' +%FT%TZ)
+    curl -s -X POST http://localhost:5080/v1/goals -H "X-Api-Key: $k" -H "Content-Type: application/json" \
+      -H "Idempotency-Key: demo-goal-1" \
+      -d "{\"vehicleDeviceId\":\"$car\",\"chargerDeviceId\":\"$wallbox\",\"targetSocPercent\":90,\"departureAt\":\"$departure\"}"
+    curl -s -H "X-Api-Key: $k" http://localhost:5080/v1/goals/<goal id>/plan
+    curl -s -X PATCH http://localhost:5080/v1/goals/<goal id> -H "X-Api-Key: $k" -H "Content-Type: application/json" -d '{"targetSocPercent":95}'
+    ```
+
+    ```powershell
+    $car = 'dev_...'; $wallbox = 'dev_...'
+    $departure = [DateTime]::UtcNow.Date.AddDays(1).AddHours(6).ToString('s') + 'Z'
+    $body = @{ vehicleDeviceId = $car; chargerDeviceId = $wallbox; targetSocPercent = 90; departureAt = $departure } | ConvertTo-Json -Compress
+    Invoke-RestMethod -Method Post http://localhost:5080/v1/goals -Headers @{ 'X-Api-Key' = $k; 'Idempotency-Key' = 'demo-goal-1' } -ContentType 'application/json' -Body $body
+    Invoke-RestMethod http://localhost:5080/v1/goals/<goal id>/plan -Headers @{ 'X-Api-Key' = $k }
+    ```
+
+    A goal set before tomorrow's prices are published charges in the slots that have a price; when the
+    worker announces tomorrow's prices, it re-plans the goal into the cheaper night as a new version.
+    `GET /v1/savings?from=...&to=...` counts confirmed plans only, so it shows zeros until plans can be
+    confirmed.
+
+15. **Re-link the car-cloud account.** Revoking it (`curl -s -X POST
     http://localhost:5090/admin/accounts/acct_demo/revoke`) makes the next poll fail with `invalid_grant`:
     the worker logs that `carcloud` account `acct_demo` needs to be linked again and stops polling it. The
     simulator also forgets rotated tokens when it restarts, which looks the same to the worker. To link
@@ -249,4 +300,6 @@ your machine, the worker polls the car cloud, and the heat-pump cloud posts sign
 
 ## Licence and data
 
-Price data: [Energy-Charts](https://api.energy-charts.info/), Fraunhofer ISE, licensed CC BY 4.0.
+Price data: [Energy-Charts](https://api.energy-charts.info/), Fraunhofer ISE, licensed CC BY 4.0 (from
+Bundesnetzagentur | SMARD.de). The recorded responses in `tests/CheapHours.UnitTests/Prices/Fixtures/`
+are kept unchanged, with their `license_info`.

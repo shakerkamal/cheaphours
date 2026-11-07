@@ -25,6 +25,7 @@ public sealed partial class OpenApiTests(ApiFactory factory) : IClassFixture<Api
             "GET /v1/goals/{id}/plan read",
             "GET /v1/prices read",
             "GET /v1/savings read",
+            "PATCH /v1/goals/{id} read",
             "POST /v1/devices/{id}/commands execute",
             "POST /v1/goals read",
             "POST /v1/plans/{id}/confirm execute",

@@ -22,8 +22,8 @@ page is binding.
 
 ## Status
 
-**Next:** propose the prices-and-planner change (Energy-Charts import with retries and fallback, greedy
-planner with property tests, re-planning, goal, plan, prices and savings endpoints, ADR-005).
+**Next:** the gate review of the prices-and-planner change, then propose command dispatch and
+reliability.
 
 ### Done
 
@@ -36,6 +36,10 @@ planner with property tests, re-planning, goal, plan, prices and savings endpoin
   `DeviceReading`, `Device` with typed attributes, `DeviceCommand`, closed `SendResult` and
   `DeviceEvent` (including `Discovered`, which carries the type and the attributes the type requires),
   `CommandState`, `Goal`, `Plan` and `PlanSlot` on the 15-minute grid.
+  - `Plan` also carries target-missed, prices-complete and when it was made; a draft must expire after
+    it was made, and `StatusAsOf(now)` shows a draft past its expiry as `Expired`. `PlanReason`
+    (`Created`, `GoalChanged`, `PricesPublished`, `ChargeDrift`).
+  - `PriceSlot`: one zone's price for one 15-minute UTC slot, negative prices allowed.
   - One device model: `Device` carries its last known `DeviceState` (status, last seen, report interval,
     hardware, last reading) and `StatusAsOf(now)` shows a device silent for more than three report
     intervals as `Offline`.
@@ -125,9 +129,10 @@ planner with property tests, re-planning, goal, plan, prices and savings endpoin
     location or `DataProtection:KeysPath`.
 - **Message contracts:** `Message` envelope (id, time, type, schema version, `traceparent`), seven
   messages, shared JSON options, per-replica gateway routing key `gateway.{replicaId}.commands`.
-- **Public API contract:** the ten `/v1` endpoints behind API-key auth (they answer 501 until
+- **Public API contract:** the eleven `/v1` endpoints behind API-key auth (they answer 501 until
   implemented), Problem Details from `ErrorCatalogue`, the OpenAPI snapshot `docs/api/openapi.v1.json`
-  with a drift test, Scalar UI in Development.
+  with a drift test, Scalar UI in Development. `PATCH /v1/goals/{id}` (scope `read`) changes a goal's
+  target or departure; `PlanDto` carries `pricesComplete`.
 - **Command lifecycle (Core, no I/O):** `Command` with a fixed transition table and history,
   deterministic planned-command keys, retry policy with jittered backoff and `Retry-After`, reconcile
   decision (confirm, resend or fail) against the device's last observation. Property tests (FsCheck)
@@ -208,24 +213,79 @@ planner with property tests, re-planning, goal, plan, prices and savings endpoin
     nullable ones (`lastSeenAt`, `expiresAt`) allow null.
 - **Persistence:** `chargePoints`, `devices` (with `removedAt`), `connections`, `telemetry`, `inbox`,
   `apiKeys`, `providerAccounts` (encrypted tokens with a version, reconnect mark, poll schedule; one
-  account per owner and provider) and `locks`; the owner-scoped device reader and the telemetry bucket
-  reader; index creation; camelCase and enum-name conventions; `schemaVersion` on every document.
-- **ADRs:** 001 (modular monolith), 002 (time-series telemetry), 003 (RabbitMQ), 008 (gateway command
-  routing).
-- **Tests:** 1202 green and 31 skipped by design (contract rules that do not fit a provider): unit,
+  account per owner and provider), `locks`, `prices`, `priceDays`, `goals`, `goalClaims`, `plans` and
+  `idempotencyKeys` (24-hour TTL); the owner-scoped device reader and the telemetry bucket reader; index
+  creation; camelCase and enum-name conventions; `schemaVersion` on every document.
+- **Greedy planner (`CheapHours.Planning`, pure, ADR-005):** the energy needed from the charge gap,
+  battery and efficiency (0.90); the window of whole UTC slots from now to departure minus the safety
+  margin (30 min), counted in UTC so daylight-saving nights hold 36 or 28 slots; every slot at the
+  charger's maximum power; the cheapest priced slots first (ties to the earlier slot, negative prices
+  welcome), unpriced slots only when needed, earliest first, flagged `pricesComplete: false`; every slot
+  and `targetMissed` when the window is too short; expected and arrival costs in unrounded EUR.
+  `PlannerOptions` with range checks naming the key; `PlanProgress.ExpectedSoc` for the drift check.
+  FsCheck checks the four planner properties over 1,000 cases each, with windows across both 2026
+  daylight-saving changes, negative and missing prices.
+- **Day-ahead price import (worker):**
+  - `EnergyChartsClient` behind `IPriceSource` reads one Europe/Berlin day per request (92, 96 or 100
+    slots; `BerlinTime` falls back to the Windows zone id under invariant globalization) through its own
+    pipeline: 10 s per attempt, 30 s in total, jittered retries for 5xx, 408, timeouts and connection
+    failures, never for 429. A closed result: published, not published (404), rate-limited (429),
+    rejected (a broken rule) or failed. Bodies are never logged.
+  - `PriceResponseValidator` checks the unit, equal array lengths, the day's first slot, 15-minute steps
+    inside the day and prices from −500 to 4000; a partial day or null prices keep the priced slots.
+  - `prices` (one document per zone and slot, Decimal128; a re-import modifies nothing) and `priceDays`
+    (complete, announced and given-up marks, each set once).
+  - `PriceImportJob` runs at start and then hourly, never later than 13:00 Berlin, under the
+    `price-import` lease: today until complete, tomorrow from 13:00 to 20:00 with a 2 s pause, at most two
+    requests a run; a 429 ends the run; one warning when tomorrow is given up (a worker started after 20:00
+    tries tomorrow once first, so a late start still picks up published prices). A complete day is announced
+    once with `PricesPublished` (id derived from zone and day; announced by the next run when the broker
+    was down). `Prices:ImportEnabled` turns it off; integration tests never reach the real API (recorded
+    fixtures for 2026-03-29, 2026-10-25 and 2026-11-02, CC BY 4.0, and WireMock).
+  - Named leases (`NamedLease`, keyed `ILease` per name: `device-polling`, `price-import`, `plan-drift`)
+    and `LeasedRun` (take, run with a deadline of half the lease, release in `finally`).
+- **Goals and plan versions:** `goals`, `goalClaims` (one open goal per vehicle and charger until its
+  departure) and `plans` (`{planId}:v{n}`, so concurrent writers store one version). Creating a goal
+  (claims, goal, version 1) and changing one (claims, goal, new version, previous `Superseded`) are single
+  MongoDB transactions. `GoalPlanningService` is the one planning path for the API and the worker: 404 for
+  another owner's device, 422 checks (past, no whole slot, more than 48 h, wrong type, same device, no
+  charge, target below charge), 409 for a busy device or a confirmed plan; a re-plan that changes nothing
+  stores nothing; drafts expire after 10 minutes; re-plans on prices or drift keep a confirmed plan
+  confirmed with its confirmation time.
+- **Re-planning (worker):** the `worker.planner` queue (bound to `PricesPublished`, with delay and
+  dead-letter queues) re-plans every open goal whose window reaches the published day; a repeated message
+  adds nothing and a database outage pauses the consumer. `DriftCheckService` (every 5 minutes, `plan-drift`
+  lease) re-plans a confirmed plan from the vehicle's reported charge when it is 5 points or more off the
+  charge the plan expects at that time.
+- **Planning API (api role):**
+  - `GET /v1/prices` (zone must be `DE-LU`, the range widened to the 15-minute grid, at most 31 days,
+    cursor paging) and `GET /v1/savings` (goals departing in the range whose latest confirmed version had
+    complete prices; zeros until plans can be confirmed).
+  - `POST /v1/goals` (`201` with `Location: /v1/goals/{id}/plan`, the goal and its draft), `PATCH
+    /v1/goals/{id}` (a new draft version; `409` for a confirmed plan or a past departure) and `GET
+    /v1/goals/{id}/plan` (a draft past its expiry shows `Expired`). Costs are shown to the cent, half away
+    from zero, and savings are the difference of the rounded costs. Another owner's goal or device gets
+    the same `404` as a missing one.
+  - `IdempotencyMiddleware` on endpoints marked `.Idempotent()` (`POST /v1/goals`): a key of 1–255
+    visible ASCII characters per owner for 24 hours; the same request replays the first response (4xx
+    included), another body gets `409 idempotency-key-reused`, a repeat while the first runs gets `409
+    conflict` (taken over after a minute), and responses of 500 and above are not kept.
+  - The README walks through today's prices and a demo goal for the simulated car and wallbox.
+- **ADRs:** 001 (modular monolith), 002 (time-series telemetry), 003 (RabbitMQ), 005 (greedy
+  cheapest-slot planner), 008 (gateway command routing).
+- **Tests:** 1410 green and 31 skipped by design (contract rules that do not fit a provider): unit,
   property, architecture, API contract, provider contract, and integration tests against a
   real MongoDB and RabbitMQ in Testcontainers, with a real gateway on Kestrel, a real worker host and
-  the API role on its own database (one model-based FsCheck test checks the bucket pipeline).
+  the API role on its own database (one model-based FsCheck test checks the bucket pipeline; four planner
+  property tests run 1,000 cases each; a golden test plans against recorded real prices).
   The integration tests include broker and database fault tests. `dotnet test` needs Docker running.
 
 ### Left to build
 
-- **Prices and planner:** Energy-Charts price import with retries and fallback, greedy planner with
-  property tests, re-planning on new prices, goal change or SoC drift, goal/plan/prices/savings
-  endpoints, ADR-005.
 - **Command dispatch and reliability:** transactional outbox and relay, dispatcher (OCPP via the gateway
   queue), confirmation timeout → reconcile → resend wired to the lifecycle, plan-confirm and command
-  endpoints with idempotency middleware, fault tests for every reliability-table row, OpenTelemetry
+  endpoints (marked `.Idempotent()`), cancelling a superseded plan version's commands, changing a goal
+  whose plan is confirmed, fault tests for every reliability-table row, OpenTelemetry
   traces and metrics, ADR-004 and ADR-006.
 - **Delivery:** small dashboard on the public API, GitHub Actions pipeline, Helm chart, k6 load test,
   README with architecture diagram and demo.
@@ -256,7 +316,7 @@ planner with property tests, re-planning, goal, plan, prices and savings endpoin
 | D2 | Goal has vehicle + charger; typed device attributes | Accepted: `Goal`, `DeviceAttributes` |
 | D3 | `apiKeys` + `ownerId`; one seeded demo user | Accepted: `apiKeys` in MongoDB seeded from configuration; every device read is owner-scoped |
 | D4 | 15-minute slots everywhere | Accepted: `PlanSlot` |
-| D5 | Per-slot Start/Stop/SetPowerLimit in core | Accepted: `CommandType` |
+| D5 | Per-slot Start/Stop/SetPowerLimit in core | Accepted: `CommandType`; per-slot plans recorded in [ADR-005](docs/adr/005-greedy-cheapest-slot-planner.md) |
 | D6 | `IWebhookVerifier` per provider | Accepted: interface built; first implementation `HeatPumpCloudProvider` (HMAC-SHA256 over timestamp and raw body) |
 | D7 | Command states `Pending, Published, Sent, Confirmed, Reconciling, Rejected, DeadLettered` | Confirmed by the user against the Notion diagram |
 | D8 | Rename "WattBridge" to CheapHours in Notion | Open (Notion edit, user) |
@@ -313,7 +373,9 @@ dotnet test --filter-method "*Role*"           # by method name; VSTest-style --
 dotnet run --project src/CheapHours.Host -- --role api      # or gateway | worker (Development via launchSettings)
 docker compose up -d --wait                    # local MongoDB, RabbitMQ and the three vendor simulators (needs .env, see README)
 dotnet run --project src/CheapHours.Host -- --role gateway --urls http://localhost:5081   # the charger connects and heat-pump webhooks arrive here
-dotnet run --project src/CheapHours.Host -- --role worker      # stores telemetry; polls the car cloud when Providers:CarCloud is set
+dotnet run --project src/CheapHours.Host -- --role worker      # stores telemetry; polls the car cloud when Providers:CarCloud is set; imports prices (--Prices:ImportEnabled=false to stop) and re-plans goals
+dotnet test --project tests/CheapHours.UnitTests --filter-class "*GreedyPlannerPropertyTests"   # the planner's four properties, 1,000 cases each
+dotnet test --project tests/CheapHours.UnitTests --filter-class "*GoldenPlanTests"              # the plan for the recorded 2026-11-02 prices
 dotnet test --project tests/CheapHours.ContractTests             # the shared provider contract suite (no Docker needed)
 dotnet run --project simulators/CheapHours.Simulators.CarCloud -- --Simulator:ClientSecret=<s> --Simulator:Accounts:0:RefreshToken=<t> --Admin:Enabled=true   # simulator without Docker
 dotnet run --project simulators/CheapHours.Simulators.HeatPumpCloud -- --Simulator:CallbackUrl=http://localhost:5081/webhooks/heatpumpcloud/acct_demo --Simulator:SigningSecret=<s> --Admin:Enabled=true   # heat-pump simulator without Docker
@@ -329,8 +391,8 @@ openspec status --change <name>                # artifact progress
 ```
 src/CheapHours.Core                  domain types; references nothing, no I/O
 src/CheapHours.Messaging.Contracts   message records + shared JSON options; references Core only
-src/CheapHours.Planning              planner (not built yet)
-src/CheapHours.Persistence           MongoDB stores: chargePoints, devices, connections, telemetry, inbox, apiKeys, providerAccounts, locks; readers; index creation
+src/CheapHours.Planning              greedy planner, planner options, plan progress (pure, Core only)
+src/CheapHours.Persistence           MongoDB stores: chargePoints, devices, connections, telemetry, inbox, apiKeys, providerAccounts, locks, prices, priceDays, goals, goalClaims, plans, idempotencyKeys; readers; index creation
 src/CheapHours.Messaging             RabbitMQ connection, topology, confirmed publisher, batching consumer (outbox later)
 src/CheapHours.Providers.Kit         adapter interfaces, registration, resilience
 src/CheapHours.Providers.Kit.Testing shared provider contract suite, WireMock vendor fake, in-memory account store
