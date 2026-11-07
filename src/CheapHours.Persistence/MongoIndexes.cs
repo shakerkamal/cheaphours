@@ -48,6 +48,15 @@ public static class MongoIndexes
     /// <summary>Requests made under an <c>Idempotency-Key</c>, per owner and key, with their responses.</summary>
     public const string IdempotencyKeys = "idempotencyKeys";
 
+    /// <summary>Device commands with their lifecycle and dispatch bookkeeping.</summary>
+    public const string Commands = "commands";
+
+    /// <summary>Messages saved with the change they announce, waiting for the relay.</summary>
+    public const string Outbox = "outbox";
+
+    /// <summary>How long a published outbox entry is kept.</summary>
+    public static readonly TimeSpan OutboxRetention = TimeSpan.FromDays(7);
+
     /// <summary>How long readings are kept.</summary>
     public static readonly TimeSpan TelemetryRetention = TimeSpan.FromDays(30);
 
@@ -91,6 +100,8 @@ public static class MongoIndexes
                 // The current version is the highest; the _id ({planId}:v{version}) keeps versions unique.
                 new CreateIndexModel<BsonDocument>(keys.Ascending("goalId").Descending("version"), new CreateIndexOptions { Name = "goalId_version" }),
                 new CreateIndexModel<BsonDocument>(keys.Ascending("ownerId").Ascending("goalId"), new CreateIndexOptions { Name = "ownerId_goalId" }),
+                // Confirming reads a plan by its id (POST /v1/plans/{id}/confirm).
+                new CreateIndexModel<BsonDocument>(keys.Ascending("planId").Descending("version"), new CreateIndexOptions { Name = "planId_version" }),
             ],
             cancellationToken).ConfigureAwait(false);
 
@@ -129,6 +140,32 @@ public static class MongoIndexes
         await database.GetCollection<BsonDocument>(Inbox).Indexes.CreateOneAsync(
             new CreateIndexModel<BsonDocument>(keys.Ascending("handledAt"), new CreateIndexOptions { Name = "handledAt_ttl", ExpireAfter = InboxRetention }),
             cancellationToken: cancellationToken).ConfigureAwait(false);
+
+        await database.GetCollection<BsonDocument>(Commands).Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<BsonDocument>(keys.Ascending("idempotencyKey"), new CreateIndexOptions { Name = "idempotencyKey", Unique = true }),
+                // The per-device queue and its busy check.
+                new CreateIndexModel<BsonDocument>(keys.Ascending("deviceId").Ascending("state").Ascending("dueAt"), new CreateIndexOptions { Name = "deviceId_state_dueAt" }),
+                // The command monitor's scans.
+                new CreateIndexModel<BsonDocument>(keys.Ascending("state").Ascending("nextAttemptAt"), new CreateIndexOptions { Name = "state_nextAttemptAt" }),
+                new CreateIndexModel<BsonDocument>(keys.Ascending("state").Ascending("dueAt"), new CreateIndexOptions { Name = "state_dueAt" }),
+                // Owner-scoped reads by id; cancelling a plan version's commands.
+                new CreateIndexModel<BsonDocument>(keys.Ascending("ownerId").Ascending("_id"), new CreateIndexOptions { Name = "ownerId_id" }),
+                new CreateIndexModel<BsonDocument>(keys.Ascending("planId").Ascending("planVersion"), new CreateIndexOptions { Name = "planId_planVersion" }),
+            ],
+            cancellationToken).ConfigureAwait(false);
+
+        await database.GetCollection<BsonDocument>(Outbox).Indexes.CreateManyAsync(
+            [
+                // The relay's due listing covers unpublished entries only.
+                new CreateIndexModel<BsonDocument>(
+                    keys.Ascending("availableAt").Ascending("createdAt"),
+                    new CreateIndexOptions<BsonDocument> { Name = "unpublished_availableAt", PartialFilterExpression = new BsonDocument("published", false) }),
+                // Unpublished entries have no publishedAt, so they never expire.
+                new CreateIndexModel<BsonDocument>(keys.Ascending("publishedAt"), new CreateIndexOptions { Name = "publishedAt_ttl", ExpireAfter = OutboxRetention }),
+                new CreateIndexModel<BsonDocument>(keys.Ascending("commandId"), new CreateIndexOptions { Name = "commandId" }),
+            ],
+            cancellationToken).ConfigureAwait(false);
 
         // Each record carries its own expiry; the monitor deletes it then (reads also treat it as absent).
         await database.GetCollection<BsonDocument>(IdempotencyKeys).Indexes.CreateOneAsync(

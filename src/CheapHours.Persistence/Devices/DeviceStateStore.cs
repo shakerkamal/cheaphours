@@ -4,9 +4,9 @@ using MongoDB.Driver;
 
 namespace CheapHours.Persistence.Devices;
 
-/// <summary>MongoDB implementation of <see cref="IDeviceStateStore"/>.</summary>
+/// <summary>MongoDB implementation of <see cref="IDeviceStateStore"/> and <see cref="IDeviceCommandStateStore"/>.</summary>
 /// <param name="database">The database.</param>
-public sealed class DeviceStateStore(IMongoDatabase database) : IDeviceStateStore
+public sealed class DeviceStateStore(IMongoDatabase database) : IDeviceStateStore, IDeviceCommandStateStore
 {
     private static readonly FilterDefinitionBuilder<DeviceDocument> Filter = Builders<DeviceDocument>.Filter;
     private static readonly UpdateDefinitionBuilder<DeviceDocument> Update = Builders<DeviceDocument>.Update;
@@ -66,9 +66,10 @@ public sealed class DeviceStateStore(IMongoDatabase database) : IDeviceStateStor
     }
 
     /// <inheritdoc/>
-    public async Task<bool> RecordStatusAsync(string providerId, string externalId, DeviceStatus status, DateTimeOffset at, CancellationToken cancellationToken)
+    public async Task<bool> RecordStatusAsync(string providerId, string externalId, DeviceStatus status, DateTimeOffset at, DateTimeOffset receivedAt, CancellationToken cancellationToken)
     {
         var when = UtcTime.ToBson(at);
+        var received = UtcTime.ToBson(receivedAt);
 
         // Compare with the last *reported* status only: the Unknown the gateway writes on connect must not
         // hide a report timestamped just before the reconnect. An Offline at or after the report still wins.
@@ -77,7 +78,7 @@ public sealed class DeviceStateStore(IMongoDatabase database) : IDeviceStateStor
 
         var result = await _collection.UpdateOneAsync(
             Key(providerId, externalId) & newerThanLastReport & notOfflineSince,
-            Update.Set(d => d.Status, status).Set(d => d.StatusAt, when).Set(d => d.ReportedStatusAt, when),
+            Update.Set(d => d.Status, status).Set(d => d.StatusAt, when).Set(d => d.ReportedStatusAt, when).Set(d => d.StatusReceivedAt, received),
             cancellationToken: cancellationToken).ConfigureAwait(false);
 
         return result.ModifiedCount > 0;
@@ -112,6 +113,44 @@ public sealed class DeviceStateStore(IMongoDatabase database) : IDeviceStateStor
     {
         var d = await _collection.Find(Key(providerId, externalId)).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
         return d is null ? null : DeviceDocumentMapper.ToDevice(d);
+    }
+
+    /// <inheritdoc/>
+    public Task<StoredDevice?> GetAsync(DeviceId deviceId, CancellationToken cancellationToken) =>
+        FirstStoredAsync(Filter.Eq(d => d.Id, deviceId.Value), cancellationToken);
+
+    /// <inheritdoc/>
+    public Task<StoredDevice?> GetAsync(OwnerId ownerId, DeviceId deviceId, CancellationToken cancellationToken) =>
+        FirstStoredAsync(Filter.Eq(d => d.OwnerId, ownerId.Value) & Filter.Eq(d => d.Id, deviceId.Value), cancellationToken);
+
+    /// <inheritdoc/>
+    Task<StoredDevice?> IDeviceCommandStateStore.FindAsync(string providerId, string externalId, CancellationToken cancellationToken) =>
+        FirstStoredAsync(Key(providerId, externalId), cancellationToken);
+
+    /// <inheritdoc/>
+    public Task SetActiveSessionAsync(string providerId, string externalId, string sessionId, CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sessionId);
+        return _collection.UpdateOneAsync(Key(providerId, externalId), Update.Set(d => d.ActiveSessionId, sessionId), cancellationToken: cancellationToken);
+    }
+
+    /// <inheritdoc/>
+    public async Task<bool> ClearActiveSessionAsync(string providerId, string externalId, string? sessionId, CancellationToken cancellationToken)
+    {
+        var running = sessionId is null ? Filter.Ne(d => d.ActiveSessionId, null) : Filter.Eq(d => d.ActiveSessionId, sessionId);
+        var result = await _collection.UpdateOneAsync(
+            Key(providerId, externalId) & running,
+            Update.Unset(d => d.ActiveSessionId),
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        return result.ModifiedCount > 0;
+    }
+
+    private async Task<StoredDevice?> FirstStoredAsync(FilterDefinition<DeviceDocument> filter, CancellationToken cancellationToken)
+    {
+        var d = await _collection.Find(filter).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        return d is null
+            ? null
+            : new StoredDevice(DeviceDocumentMapper.ToDevice(d), UtcTime.FromBson(d.StatusReceivedAt), d.ActiveSessionId, UtcTime.FromBson(d.RemovedAt));
     }
 
     private static FilterDefinition<DeviceDocument> Key(string providerId, string externalId) =>

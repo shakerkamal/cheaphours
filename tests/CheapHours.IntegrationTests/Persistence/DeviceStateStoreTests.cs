@@ -36,7 +36,7 @@ public sealed class DeviceStateStoreTests(MongoFixture mongo) : IAsyncLifetime
     {
         var ct = TestContext.Current.CancellationToken;
         await Store.EnsureAsync(Charger("CP-RM1"), Interval, T0, ct);
-        await Store.RecordStatusAsync(Provider, "CP-RM1", DeviceStatus.Charging, T0.AddSeconds(10), ct);
+        await Store.RecordStatusAsync(Provider, "CP-RM1", DeviceStatus.Charging, T0.AddSeconds(10), T0.AddSeconds(10), ct);
 
         Assert.True(await Store.MarkRemovedAsync(Provider, "CP-RM1", T0.AddMinutes(1), ct));
 
@@ -51,7 +51,7 @@ public sealed class DeviceStateStoreTests(MongoFixture mongo) : IAsyncLifetime
     {
         var ct = TestContext.Current.CancellationToken;
         await Store.EnsureAsync(Charger("CP-RM2"), Interval, T0, ct);
-        await Store.RecordStatusAsync(Provider, "CP-RM2", DeviceStatus.Charging, T0.AddMinutes(5), ct);
+        await Store.RecordStatusAsync(Provider, "CP-RM2", DeviceStatus.Charging, T0.AddMinutes(5), T0.AddMinutes(5), ct);
 
         Assert.False(await Store.MarkRemovedAsync(Provider, "CP-RM2", T0.AddMinutes(1), ct));
 
@@ -68,7 +68,7 @@ public sealed class DeviceStateStoreTests(MongoFixture mongo) : IAsyncLifetime
         await Store.MarkRemovedAsync(Provider, "CP-RM3", T0.AddMinutes(1), ct);
 
         var again = await Store.EnsureAsync(Charger("CP-RM3"), Interval, T0.AddMinutes(2), ct);
-        await Store.RecordStatusAsync(Provider, "CP-RM3", DeviceStatus.Available, T0.AddMinutes(2), ct);
+        await Store.RecordStatusAsync(Provider, "CP-RM3", DeviceStatus.Available, T0.AddMinutes(2), T0.AddMinutes(2), ct);
 
         Assert.Equal(id, again);
         Assert.False((await RawAsync("CP-RM3")).Contains("removedAt"));
@@ -147,8 +147,8 @@ public sealed class DeviceStateStoreTests(MongoFixture mongo) : IAsyncLifetime
         var ct = TestContext.Current.CancellationToken;
         await Store.EnsureAsync(Charger("CP004"), Interval, T0, ct);
 
-        Assert.True(await Store.RecordStatusAsync(Provider, "CP004", DeviceStatus.Charging, T0.AddMinutes(5), ct));
-        Assert.False(await Store.RecordStatusAsync(Provider, "CP004", DeviceStatus.Available, T0.AddMinutes(1), ct));
+        Assert.True(await Store.RecordStatusAsync(Provider, "CP004", DeviceStatus.Charging, T0.AddMinutes(5), T0.AddMinutes(5), ct));
+        Assert.False(await Store.RecordStatusAsync(Provider, "CP004", DeviceStatus.Available, T0.AddMinutes(1), T0.AddMinutes(1), ct));
 
         var state = await Store.FindAsync(Provider, "CP004", ct);
         Assert.Equal(DeviceStatus.Charging, state!.Status);
@@ -160,11 +160,11 @@ public sealed class DeviceStateStoreTests(MongoFixture mongo) : IAsyncLifetime
     {
         var ct = TestContext.Current.CancellationToken;
         await Store.EnsureAsync(Charger("CP020"), Interval, T0, ct);
-        await Store.RecordStatusAsync(Provider, "CP020", DeviceStatus.Available, T0.AddMinutes(1), ct);
+        await Store.RecordStatusAsync(Provider, "CP020", DeviceStatus.Available, T0.AddMinutes(1), T0.AddMinutes(1), ct);
         await Store.MarkOfflineAsync(Provider, "CP020", T0.AddMinutes(5), ct);
         await Store.EnsureAsync(Charger("CP020"), Interval, T0.AddMinutes(10), ct);
 
-        Assert.True(await Store.RecordStatusAsync(Provider, "CP020", DeviceStatus.Charging, T0.AddMinutes(8), ct));
+        Assert.True(await Store.RecordStatusAsync(Provider, "CP020", DeviceStatus.Charging, T0.AddMinutes(8), T0.AddMinutes(8), ct));
 
         Assert.Equal(DeviceStatus.Charging, (await Store.FindAsync(Provider, "CP020", ct))!.Status);
     }
@@ -174,10 +174,10 @@ public sealed class DeviceStateStoreTests(MongoFixture mongo) : IAsyncLifetime
     {
         var ct = TestContext.Current.CancellationToken;
         await Store.EnsureAsync(Charger("CP021"), Interval, T0, ct);
-        await Store.RecordStatusAsync(Provider, "CP021", DeviceStatus.Charging, T0.AddMinutes(1), ct);
+        await Store.RecordStatusAsync(Provider, "CP021", DeviceStatus.Charging, T0.AddMinutes(1), T0.AddMinutes(1), ct);
         await Store.MarkOfflineAsync(Provider, "CP021", T0.AddMinutes(5), ct);
 
-        Assert.False(await Store.RecordStatusAsync(Provider, "CP021", DeviceStatus.Available, T0.AddMinutes(3), ct));
+        Assert.False(await Store.RecordStatusAsync(Provider, "CP021", DeviceStatus.Available, T0.AddMinutes(3), T0.AddMinutes(3), ct));
 
         Assert.Equal(DeviceStatus.Offline, (await Store.FindAsync(Provider, "CP021", ct))!.Status);
     }
@@ -187,7 +187,7 @@ public sealed class DeviceStateStoreTests(MongoFixture mongo) : IAsyncLifetime
     {
         var ct = TestContext.Current.CancellationToken;
         await Store.EnsureAsync(Charger("CP022"), Interval, T0, ct);
-        await Store.RecordStatusAsync(Provider, "CP022", DeviceStatus.Charging, T0.AddMinutes(5), ct);
+        await Store.RecordStatusAsync(Provider, "CP022", DeviceStatus.Charging, T0.AddMinutes(5), T0.AddMinutes(5), ct);
 
         Assert.False(await Store.MarkOfflineAsync(Provider, "CP022", T0.AddMinutes(4), ct));
 
@@ -225,7 +225,7 @@ public sealed class DeviceStateStoreTests(MongoFixture mongo) : IAsyncLifetime
     {
         var ct = TestContext.Current.CancellationToken;
         await Store.EnsureAsync(Charger("CP007"), Interval, T0, ct);
-        await Store.RecordStatusAsync(Provider, "CP007", DeviceStatus.Charging, T0.AddMinutes(1), ct);
+        await Store.RecordStatusAsync(Provider, "CP007", DeviceStatus.Charging, T0.AddMinutes(1), T0.AddMinutes(1), ct);
 
         await Store.EnsureAsync(Charger("CP007"), Interval, T0.AddMinutes(2), ct);
 
@@ -292,4 +292,60 @@ public sealed class DeviceStateStoreTests(MongoFixture mongo) : IAsyncLifetime
     {
         Assert.Null(await Store.FindAsync(Provider, "CP999", TestContext.Current.CancellationToken));
     }
+
+    [Fact]
+    public async Task Status_change_stores_the_receipt_time_not_the_report_time()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var id = await Store.EnsureAsync(Charger("CP030"), Interval, T0, ct);
+
+        // The charger's clock runs two minutes behind: its report says 10:03, CheapHours received it at 10:05.
+        await Store.RecordStatusAsync(Provider, "CP030", DeviceStatus.Charging, T0.AddMinutes(3), T0.AddMinutes(5), ct);
+
+        var stored = await Commands.GetAsync(id, ct);
+        Assert.Equal(T0.AddMinutes(5), stored!.StatusReceivedAt);
+        Assert.Equal(T0.AddMinutes(3), stored.Device.State!.StatusAt);
+    }
+
+    [Fact]
+    public async Task Stale_report_keeps_the_previous_receipt_time()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var id = await Store.EnsureAsync(Charger("CP031"), Interval, T0, ct);
+        await Store.RecordStatusAsync(Provider, "CP031", DeviceStatus.Charging, T0.AddMinutes(5), T0.AddMinutes(5), ct);
+
+        await Store.RecordStatusAsync(Provider, "CP031", DeviceStatus.Available, T0.AddMinutes(1), T0.AddMinutes(6), ct);
+
+        Assert.Equal(T0.AddMinutes(5), (await Commands.GetAsync(id, ct))!.StatusReceivedAt);
+    }
+
+    [Fact]
+    public async Task Active_session_is_set_and_cleared_only_by_its_own_id()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await Store.EnsureAsync(Charger("CP032"), Interval, T0, ct);
+
+        await Commands.SetActiveSessionAsync(Provider, "CP032", "4242", ct);
+        Assert.Equal("4242", (await Commands.FindAsync(Provider, "CP032", ct))!.ActiveSessionId);
+
+        Assert.False(await Commands.ClearActiveSessionAsync(Provider, "CP032", "4241", ct));
+        Assert.Equal("4242", (await Commands.FindAsync(Provider, "CP032", ct))!.ActiveSessionId);
+
+        Assert.True(await Commands.ClearActiveSessionAsync(Provider, "CP032", "4242", ct));
+        Assert.Null((await Commands.FindAsync(Provider, "CP032", ct))!.ActiveSessionId);
+    }
+
+    [Fact]
+    public async Task Command_state_read_shows_the_removal_and_is_owner_scoped()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var id = await Store.EnsureAsync(Charger("CP033"), Interval, T0, ct);
+        await Store.MarkRemovedAsync(Provider, "CP033", T0.AddMinutes(1), ct);
+
+        Assert.Equal(T0.AddMinutes(1), (await Commands.GetAsync(Owner, id, ct))!.RemovedAt);
+        Assert.Null(await Commands.GetAsync(OwnerId.Parse("own_other"), id, ct));
+        Assert.Null(await Commands.GetAsync(DeviceId.Parse("dev_missing"), ct));
+    }
+
+    private IDeviceCommandStateStore Commands => Store;
 }

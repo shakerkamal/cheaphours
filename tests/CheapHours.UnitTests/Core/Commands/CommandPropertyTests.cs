@@ -32,4 +32,26 @@ public sealed class CommandPropertyTests
             }
         }
     }
+
+    // Attempts change only on the outcome of a send; Cancel never counts, from Pending or Published.
+    [Property(MaxTest = 500)]
+    public void Cancel_never_counts_as_an_attempt(CommandTrigger[] triggers)
+    {
+        var command = New();
+
+        foreach (var trigger in triggers)
+        {
+            if (!command.CanFire(trigger))
+            {
+                continue;
+            }
+
+            var attempts = command.Attempts;
+            var from = command.State;
+            Fire(command, trigger, Later(command));
+
+            var counts = from == CommandState.Published && trigger != CommandTrigger.Cancel;
+            Assert.Equal(counts ? attempts + 1 : attempts, command.Attempts);
+        }
+    }
 }

@@ -1,7 +1,9 @@
+using CheapHours.Core.Commands;
 using CheapHours.Core.Goals;
 using CheapHours.Core.Ids;
 using CheapHours.IntegrationTests.Infrastructure;
 using CheapHours.Persistence;
+using CheapHours.Persistence.Commands;
 using CheapHours.Persistence.Goals;
 using CheapHours.Persistence.Plans;
 using MongoDB.Bson;
@@ -155,6 +157,113 @@ public sealed class GoalStoreTests(MongoFixture mongo) : IAsyncLifetime
         Assert.Equal([$"goal_a{_s}", $"goal_c{_s}", $"goal_b{_s}"], Mine(await Goals.ListOpenAsync(Now, Ct)));
         Assert.Equal([$"goal_b{_s}"], Mine(await Goals.ListOpenAsync(Now.AddHours(10), Ct)));
         Assert.Equal([$"goal_a{_s}"], Mine(await Goals.ListDepartingAsync(Owner, Now, Now.AddHours(10), Ct)));
+    }
+
+    [Fact]
+    public async Task Confirming_a_draft_stores_it_confirmed_with_its_commands_and_announcements()
+    {
+        var goal = NewGoal("cf", "car", "box", Now.AddHours(13));
+        var draft = Version(goal, 1);
+        await Goals.CreateAsync(goal, draft, Now, Ct);
+        var batch = CommandSamples.ForPlan(draft, goal.Goal.ChargerDeviceId, Now);
+
+        Assert.Equal(GoalWriteOutcome.Stored, await Goals.ConfirmAsync(draft, null, null, batch, Now.AddMinutes(2), Ct));
+
+        var plan = await Plans.GetCurrentAsync(goal.Goal.Id, Ct);
+        Assert.Equal((PlanStatus.Confirmed, Now.AddMinutes(2)), (plan!.Plan.Status, plan.ConfirmedAt!.Value));
+        var commands = await new CommandStore(_database).ListForPlanVersionAsync(goal.PlanId, 1, Ct);
+        Assert.Equal(4, commands.Count);
+        Assert.All(commands, c => Assert.Equal(CommandState.Pending, c.Command.State));
+        Assert.Equal(4, await Outbox.CountDocumentsAsync(Builders<BsonDocument>.Filter.In("commandId", commands.Select(c => c.Id.Value)), cancellationToken: Ct));
+    }
+
+    [Fact]
+    public async Task Confirming_twice_or_below_a_newer_version_writes_nothing()
+    {
+        var goal = NewGoal("c2", "car", "box", Now.AddHours(13));
+        var draft = Version(goal, 1);
+        await Goals.CreateAsync(goal, draft, Now, Ct);
+        await Goals.ConfirmAsync(draft, null, null, CommandBatch.None, Now, Ct);
+
+        var again = CommandSamples.ForPlan(draft, goal.Goal.ChargerDeviceId, Now);
+        Assert.Equal(GoalWriteOutcome.PlanChanged, await Goals.ConfirmAsync(draft, null, null, again, Now, Ct));
+
+        var other = NewGoal("c3", "car2", "box2", Now.AddHours(13));
+        await Goals.CreateAsync(other, Version(other, 1), Now, Ct);
+        await Plans.AddVersionAsync(Version(other, 2, reason: PlanReason.PricesPublished), Ct);
+        Assert.Equal(GoalWriteOutcome.PlanChanged, await Goals.ConfirmAsync(Version(other, 1), null, null, CommandBatch.None, Now, Ct));
+
+        Assert.Empty(await new CommandStore(_database).ListForPlanVersionAsync(goal.PlanId, 1, Ct));
+        Assert.Equal(PlanStatus.Draft, (await Plans.GetCurrentAsync(other.Goal.Id, Ct))!.Plan.Status);
+    }
+
+    [Fact]
+    public async Task Change_draft_keeps_the_running_version_and_supersedes_an_earlier_draft()
+    {
+        var (goal, running) = await ConfirmedAsync("cd");
+        await Goals.AddChangeDraftAsync(Version(goal, 2) with { ProposedTargetSocPercent = 85 }, Ct);
+
+        Assert.Equal(GoalWriteOutcome.Stored, await Goals.AddChangeDraftAsync(Version(goal, 3) with { ProposedTargetSocPercent = 90 }, Ct));
+
+        var versions = await Plans.ListVersionsAsync(goal.Goal.Id, Ct);
+        Assert.Equal([PlanStatus.Confirmed, PlanStatus.Superseded, PlanStatus.Draft], versions.Select(v => v.Plan.Status));
+        Assert.Equal(running.Plan.Version, (await Plans.GetRunningAsync(goal.Goal.Id, Ct))!.Plan.Version);
+        Assert.Equal(80, (await Goals.GetAsync(Owner, goal.Goal.Id, Ct))!.Goal.TargetSocPercent);
+    }
+
+    [Fact]
+    public async Task Confirming_a_change_draft_applies_its_values_and_supersedes_the_running_version()
+    {
+        var (goal, running) = await ConfirmedAsync("ca");
+        var later = goal.Goal.DepartureUtc.AddHours(2);
+        var draft = Version(goal, 2) with { ProposedTargetSocPercent = 90, ProposedDepartureAt = later };
+        await Goals.AddChangeDraftAsync(draft, Ct);
+        var changed = goal with { Goal = new Goal(goal.Goal.Id, Owner, goal.Goal.VehicleDeviceId, goal.Goal.ChargerDeviceId, 90, later), UpdatedAt = Now.AddMinutes(5) };
+
+        Assert.Equal(GoalWriteOutcome.Stored, await Goals.ConfirmAsync(draft, running, changed, CommandBatch.None, Now.AddMinutes(5), Ct));
+
+        var stored = await Goals.GetAsync(Owner, goal.Goal.Id, Ct);
+        Assert.Equal((90, later), (stored!.Goal.TargetSocPercent, stored.Goal.DepartureUtc));
+        var claim = await Claims.Find(new BsonDocument("_id", goal.Goal.ChargerDeviceId.Value)).SingleAsync(Ct);
+        Assert.Equal(later.UtcDateTime, claim["until"].ToUniversalTime());
+        Assert.Equal([PlanStatus.Superseded, PlanStatus.Confirmed], (await Plans.ListVersionsAsync(goal.Goal.Id, Ct)).Select(v => v.Plan.Status));
+    }
+
+    [Fact]
+    public async Task Re_planning_a_confirmed_plan_supersedes_the_running_version_and_a_change_draft()
+    {
+        var (goal, running) = await ConfirmedAsync("rp");
+        await Goals.AddChangeDraftAsync(Version(goal, 2) with { ProposedTargetSocPercent = 90 }, Ct);
+        var next = Version(goal, 3, PlanStatus.Confirmed, confirmedAt: running.ConfirmedAt, reason: PlanReason.PricesPublished);
+
+        Assert.Equal(GoalWriteOutcome.Stored, await Goals.ReplanConfirmedAsync(next, running, CommandBatch.None, Now.AddMinutes(5), Ct));
+
+        Assert.Equal([PlanStatus.Superseded, PlanStatus.Superseded, PlanStatus.Confirmed], (await Plans.ListVersionsAsync(goal.Goal.Id, Ct)).Select(v => v.Plan.Status));
+        Assert.Equal(3, (await Plans.GetRunningAsync(goal.Goal.Id, Ct))!.Plan.Version);
+    }
+
+    [Fact]
+    public async Task Re_planning_a_version_that_is_no_longer_running_writes_nothing()
+    {
+        var (goal, running) = await ConfirmedAsync("rs");
+        await Goals.ReplanConfirmedAsync(Version(goal, 2, PlanStatus.Confirmed, reason: PlanReason.PricesPublished), running, CommandBatch.None, Now, Ct);
+
+        var stale = Version(goal, 3, PlanStatus.Confirmed, reason: PlanReason.ChargeDrift);
+        Assert.Equal(GoalWriteOutcome.PlanChanged, await Goals.ReplanConfirmedAsync(stale, running, CommandBatch.None, Now, Ct));
+        Assert.Equal(GoalWriteOutcome.VersionTaken, await Goals.ReplanConfirmedAsync(Version(goal, 2, PlanStatus.Confirmed), running, CommandBatch.None, Now, Ct));
+
+        Assert.Equal(2, (await Plans.GetCurrentAsync(goal.Goal.Id, Ct))!.Plan.Version);
+    }
+
+    private IMongoCollection<BsonDocument> Outbox => _database.GetCollection<BsonDocument>(MongoIndexes.Outbox);
+
+    private async Task<(StoredGoal Goal, StoredPlan Running)> ConfirmedAsync(string name)
+    {
+        var goal = NewGoal(name, "car", "box", Now.AddHours(13));
+        var draft = Version(goal, 1);
+        await Goals.CreateAsync(goal, draft, Now, Ct);
+        Assert.Equal(GoalWriteOutcome.Stored, await Goals.ConfirmAsync(draft, null, null, CommandBatch.None, Now, Ct));
+        return (goal, (await Plans.GetRunningAsync(goal.Goal.Id, Ct))!);
     }
 
     // Only this test's goals: the database is shared with the other tests of the class.

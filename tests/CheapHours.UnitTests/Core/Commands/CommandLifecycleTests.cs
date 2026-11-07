@@ -64,7 +64,7 @@ public sealed class CommandLifecycleTests
     }
 
     [Fact]
-    public void Transition_table_is_exactly_the_eleven_allowed_pairs()
+    public void Transition_table_is_exactly_the_thirteen_allowed_pairs()
     {
         var expected = new Dictionary<(CommandState, CommandTrigger), CommandState>
         {
@@ -79,12 +79,14 @@ public sealed class CommandLifecycleTests
             [(CommandState.Reconciling, CommandTrigger.Confirm)] = CommandState.Confirmed,
             [(CommandState.Reconciling, CommandTrigger.Resend)] = CommandState.Published,
             [(CommandState.Reconciling, CommandTrigger.GiveUp)] = CommandState.DeadLettered,
+            [(CommandState.Pending, CommandTrigger.Cancel)] = CommandState.Cancelled,
+            [(CommandState.Published, CommandTrigger.Cancel)] = CommandState.Cancelled,
         };
 
         Assert.Equal(
             expected.OrderBy(p => p.Key),
             CommandTransitions.Table.Select(p => KeyValuePair.Create((p.Key.From, p.Key.Trigger), p.Value)).OrderBy(p => p.Key));
-        Assert.Equal(10, CommandTransitions.Table.Count(p => p.Key.From != p.Value));
+        Assert.Equal(12, CommandTransitions.Table.Count(p => p.Key.From != p.Value));
     }
 
     [Theory]
@@ -103,7 +105,8 @@ public sealed class CommandLifecycleTests
             Assert.Equal(next, command.State);
             Assert.Equal(historyBefore + 1, command.History.Count);
             Assert.Equal(next, command.History[^1].State);
-            Assert.Equal(attemptsBefore + (state == CommandState.Published ? 1 : 0), command.Attempts);
+            var countsAsAttempt = state == CommandState.Published && trigger != CommandTrigger.Cancel;
+            Assert.Equal(attemptsBefore + (countsAsAttempt ? 1 : 0), command.Attempts);
         }
         else
         {
@@ -272,5 +275,54 @@ public sealed class CommandLifecycleTests
     public void Last_sent_time_is_null_before_the_first_send()
     {
         Assert.Null(InState(CommandState.Published).LastSentAt);
+    }
+
+    [Fact]
+    public void Sent_command_cannot_be_cancelled()
+    {
+        var command = InState(CommandState.Sent);
+
+        Assert.Throws<InvalidCommandTransitionException>(() => command.Cancel(Later(command), "Superseded by plan_8812:v4"));
+
+        Assert.Equal(CommandState.Sent, command.State);
+    }
+
+    [Fact]
+    public void Cancelling_a_published_command_is_not_an_attempt()
+    {
+        var command = InState(CommandState.Published);
+        command.RetryLater(OneAm, OneAm.AddSeconds(5), "vendor returned 503");
+
+        command.Cancel(OneAm.AddSeconds(1), "Superseded by plan_8812:v4");
+
+        Assert.Equal(1, command.Attempts);
+        Assert.Equal(CommandState.Cancelled, command.State);
+        Assert.Null(command.NextAttemptAt);
+    }
+
+    [Fact]
+    public void Cancel_records_the_reason()
+    {
+        var command = New();
+
+        command.Cancel(OneAm, "Superseded by plan_8812:v4");
+
+        var entry = command.History[^1];
+        Assert.Equal(CommandState.Cancelled, entry.State);
+        Assert.Equal(OneAm, entry.At);
+        Assert.Equal("Superseded by plan_8812:v4", entry.Reason);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("  ")]
+    public void Cancel_needs_a_reason(string reason)
+    {
+        var command = New();
+
+        Assert.ThrowsAny<ArgumentException>(() => command.Cancel(OneAm, reason));
+
+        Assert.Equal(CommandState.Pending, command.State);
+        Assert.Single(command.History);
     }
 }

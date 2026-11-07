@@ -127,6 +127,18 @@ public sealed class ProviderAccountStore(IMongoDatabase database, TimeProvider t
         return _collection.UpdateOneAsync(Key(account), update, cancellationToken: cancellationToken);
     }
 
+    /// <summary>Finds <paramref name="ownerId"/>'s linked account at <paramref name="providerId"/> (D3: at most one).</summary>
+    /// <param name="ownerId">The owner.</param>
+    /// <param name="providerId">The provider id.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The account, or <see langword="null"/> when the owner has not linked one.</returns>
+    public async Task<ProviderAccount?> FindAsync(OwnerId ownerId, string providerId, CancellationToken cancellationToken)
+    {
+        var d = await _collection.Find(Filter.Eq(a => a.OwnerId, ownerId.Value) & Filter.Eq(a => a.ProviderId, providerId))
+            .FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        return d is null ? null : new ProviderAccount(d.ProviderId, OwnerId.Parse(d.OwnerId), d.ExternalAccountId);
+    }
+
     private static string Id(ProviderAccount account) => $"{account.ProviderId}/{account.ExternalAccountId}";
 
     private static FilterDefinition<ProviderAccountDocument> Key(ProviderAccount account) =>

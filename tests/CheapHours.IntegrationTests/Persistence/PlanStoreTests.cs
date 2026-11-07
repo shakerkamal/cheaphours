@@ -102,6 +102,37 @@ public sealed class PlanStoreTests(MongoFixture mongo) : IAsyncLifetime
         Assert.Empty(await Plans.LatestConfirmedAsync(OwnerId.Parse("own_other"), [a.Goal.Id], Ct));
     }
 
+    [Fact]
+    public async Task Running_version_is_the_highest_confirmed_one()
+    {
+        var goal = await CreateAsync("run");
+        Assert.Null(await Plans.GetRunningAsync(goal.Goal.Id, Ct));
+        await Plans.AddVersionAsync(Version(goal, 2, PlanStatus.Confirmed, confirmedAt: Now), Ct);
+
+        // A change draft above it leaves version 2 confirmed (the goal store writes this case in one transaction).
+        await _database.GetCollection<BsonDocument>(MongoIndexes.Plans).InsertOneAsync(
+            new BsonDocument { { "_id", $"{goal.PlanId}:v3" }, { "planId", goal.PlanId.Value }, { "version", 3 }, { "goalId", goal.Goal.Id.Value }, { "status", "Draft" } },
+            cancellationToken: Ct);
+
+        Assert.Equal(2, (await Plans.GetRunningAsync(goal.Goal.Id, Ct))!.Plan.Version);
+    }
+
+    [Fact]
+    public async Task Proposed_values_round_trip_and_default_to_null()
+    {
+        var goal = await CreateAsync("prop");
+        var draft = Version(goal, 2) with { ProposedTargetSocPercent = 90, ProposedDepartureAt = Now.AddHours(14) };
+
+        await Plans.AddVersionAsync(draft, Ct);
+
+        var current = await Plans.GetCurrentAsync(goal.Goal.Id, Ct);
+        Assert.Equal((90, Now.AddHours(14)), (current!.ProposedTargetSocPercent!.Value, current.ProposedDepartureAt!.Value));
+        Assert.True(current.IsChangeDraft);
+        var first = (await Plans.ListVersionsAsync(goal.Goal.Id, Ct))[0];
+        Assert.Null(first.ProposedTargetSocPercent);
+        Assert.False(first.IsChangeDraft);
+    }
+
     private async Task<StoredGoal> CreateAsync(string name, string vehicle = "car", string charger = "box")
     {
         var goal = Goal($"goal_{name}{_s}", $"dev_{vehicle}{_s}", $"dev_{charger}{_s}", Now.AddHours(13));

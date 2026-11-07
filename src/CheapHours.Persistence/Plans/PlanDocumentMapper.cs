@@ -29,6 +29,8 @@ internal static class PlanDocumentMapper
             MadeAt = UtcTime.ToBson(plan.MadeAtUtc),
             ExpiresAt = plan.ExpiresAtUtc is { } expires ? UtcTime.ToBson(expires) : null,
             ConfirmedAt = stored.ConfirmedAt is { } confirmed ? UtcTime.ToBson(confirmed) : null,
+            ProposedTargetSocPercent = stored.ProposedTargetSocPercent,
+            ProposedDepartureAt = stored.ProposedDepartureAt is { } departure ? UtcTime.ToBson(departure) : null,
         };
     }
 
@@ -48,6 +50,14 @@ internal static class PlanDocumentMapper
             d.PricesComplete,
             UtcTime.FromBson(d.MadeAt),
             UtcTime.FromBson(d.ExpiresAt));
-        return new StoredPlan(plan, d.Reason, d.StartSocPercent, d.TargetSocPercent, d.EnergyNeededWh, UtcTime.FromBson(d.ConfirmedAt));
+        return new StoredPlan(
+            plan,
+            d.Reason,
+            d.StartSocPercent,
+            d.TargetSocPercent,
+            d.EnergyNeededWh,
+            UtcTime.FromBson(d.ConfirmedAt),
+            d.ProposedTargetSocPercent,
+            UtcTime.FromBson(d.ProposedDepartureAt));
     }
 }

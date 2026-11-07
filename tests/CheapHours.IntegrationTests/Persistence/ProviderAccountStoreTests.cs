@@ -33,6 +33,17 @@ public sealed class ProviderAccountStoreTests(MongoFixture mongo) : IAsyncLifeti
             .Find(new BsonDocument("_id", $"{account.ProviderId}/{account.ExternalAccountId}")).SingleAsync(Ct);
 
     [Fact]
+    public async Task Owners_account_at_a_provider_is_found()
+    {
+        var account = Account("acct_find", owner: "own_find", provider: "cloudf");
+        await Store.SeedAsync(account, "blob-seed", Ct);
+
+        Assert.Equal(account, await Store.FindAsync(OwnerId.Parse("own_find"), "cloudf", Ct));
+        Assert.Null(await Store.FindAsync(OwnerId.Parse("own_find"), "cloudy", Ct));
+        Assert.Null(await Store.FindAsync(OwnerId.Parse("own_none"), "cloudf", Ct));
+    }
+
+    [Fact]
     public async Task Seeding_inserts_a_missing_account()
     {
         var account = Account("acct_1");

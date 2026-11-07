@@ -56,6 +56,15 @@ internal sealed class PlanDocument
     [BsonIgnoreIfNull]
     public DateTime? ConfirmedAt { get; set; }
 
+    /// <summary>Gets or sets the target a change draft proposes; absent on other versions.</summary>
+    [BsonIgnoreIfNull]
+    public int? ProposedTargetSocPercent { get; set; }
+
+    /// <summary>Gets or sets the departure a change draft proposes; absent on other versions.</summary>
+    [BsonDateTimeOptions(Kind = DateTimeKind.Utc)]
+    [BsonIgnoreIfNull]
+    public DateTime? ProposedDepartureAt { get; set; }
+
     public int SchemaVersion { get; set; } = 1;
 
     /// <summary>One chosen slot.</summary>

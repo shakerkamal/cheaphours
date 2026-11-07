@@ -11,6 +11,19 @@ public interface IPlanStore
     /// <returns>The current version, or <see langword="null"/> when the goal has no plan.</returns>
     Task<StoredPlan?> GetCurrentAsync(GoalId goalId, CancellationToken cancellationToken);
 
+    /// <summary>Reads the current (highest) version of one of <paramref name="ownerId"/>'s plans.</summary>
+    /// <param name="ownerId">The owner (D3).</param>
+    /// <param name="planId">The plan.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The current version, or <see langword="null"/> when the plan does not exist or belongs to another owner.</returns>
+    Task<StoredPlan?> GetCurrentAsync(OwnerId ownerId, PlanId planId, CancellationToken cancellationToken);
+
+    /// <summary>Reads the running version of <paramref name="goalId"/>'s plan: its highest <c>Confirmed</c> version.</summary>
+    /// <param name="goalId">The goal.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The running version, or <see langword="null"/> when no version is confirmed.</returns>
+    Task<StoredPlan?> GetRunningAsync(GoalId goalId, CancellationToken cancellationToken);
+
     /// <summary>Reads every version of <paramref name="goalId"/>'s plan, oldest first.</summary>
     /// <param name="goalId">The goal.</param>
     /// <param name="cancellationToken">Cancels the read.</param>

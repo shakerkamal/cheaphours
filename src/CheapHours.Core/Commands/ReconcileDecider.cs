@@ -9,10 +9,10 @@ namespace CheapHours.Core.Commands;
 public static class ReconcileDecider
 {
     /// <summary>The smallest power-limit tolerance, in W.</summary>
-    public const int MinToleranceW = 100;
+    public const int MinToleranceW = CommandEffect.MinToleranceW;
 
     /// <summary>The power-limit tolerance as a share of the limit.</summary>
-    public const decimal TolerancePercent = 5m;
+    public const decimal TolerancePercent = CommandEffect.TolerancePercent;
 
     private static readonly ReconcileDecision.Confirm Confirm = new();
     private static readonly ReconcileDecision.Resend Resend = new();
@@ -37,34 +37,22 @@ public static class ReconcileDecider
         var status = fresh?.Status ?? DeviceStatus.Unknown;
         var type = command.Request.Type;
 
-        ReconcileDecision decision = (type, status) switch
-        {
-            (_, DeviceStatus.Offline or DeviceStatus.Unknown) => Resend,
-            (CommandType.StartCharging, DeviceStatus.Charging) => Confirm,
-            (CommandType.StartCharging, DeviceStatus.Available) => Resend,
-            (CommandType.StopCharging, DeviceStatus.Charging) => Resend,
-            (CommandType.StopCharging, DeviceStatus.Available or DeviceStatus.Faulted) => Confirm,
-            (CommandType.SetPowerLimit, DeviceStatus.Charging) => IsWithinLimit(command.Request.MaxPowerW, fresh?.PowerW) ? Confirm : Resend,
-            (CommandType.SetPowerLimit, DeviceStatus.Available) => Confirm,
-            (CommandType.StartCharging or CommandType.SetPowerLimit, DeviceStatus.Faulted) =>
-                new ReconcileDecision.Fail($"Device reported {status}; {type} cannot take effect."),
-            _ => throw new ArgumentOutOfRangeException(nameof(command), (type, status), "No reconcile rule for this command type and status."),
-        };
+        // The confirm rows are the shared effect rule; the rest decide between resend and fail.
+        ReconcileDecision decision = fresh is not null && CommandEffect.IsShown(command.Request, fresh)
+            ? Confirm
+            : (type, status) switch
+            {
+                (_, DeviceStatus.Offline or DeviceStatus.Unknown) => Resend,
+                (CommandType.StartCharging, DeviceStatus.Available) => Resend,
+                (CommandType.StopCharging, DeviceStatus.Charging) => Resend,
+                (CommandType.SetPowerLimit, DeviceStatus.Charging) => Resend,
+                (CommandType.StartCharging or CommandType.SetPowerLimit, DeviceStatus.Faulted) =>
+                    new ReconcileDecision.Fail($"Device reported {status}; {type} cannot take effect."),
+                _ => throw new ArgumentOutOfRangeException(nameof(command), (type, status), "No reconcile rule for this command type and status."),
+            };
 
         return decision is ReconcileDecision.Resend && command.Attempts >= options.MaxAttempts
             ? new ReconcileDecision.Fail($"Not confirmed and no attempts left after {command.Attempts}.")
             : decision;
-    }
-
-    // Meters report momentary power with noise: allow max(5% of the limit, 100 W) above it.
-    private static bool IsWithinLimit(int? limitW, int? powerW)
-    {
-        if (limitW is not { } limit || powerW is not { } power)
-        {
-            return false;
-        }
-
-        var tolerance = Math.Max(limit * TolerancePercent / 100m, MinToleranceW);
-        return power <= limit + tolerance;
     }
 }

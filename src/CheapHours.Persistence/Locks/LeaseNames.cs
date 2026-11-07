@@ -12,6 +12,12 @@ public static class LeaseNames
     /// <summary>One replica checks confirmed plans for charge drift per run.</summary>
     public const string PlanDrift = "plan-drift";
 
+    /// <summary>One replica publishes the outbox per run.</summary>
+    public const string OutboxRelay = "outbox-relay";
+
+    /// <summary>One replica confirms, reconciles and re-announces commands per run.</summary>
+    public const string CommandMonitor = "command-monitor";
+
     /// <summary>Gets every lease name.</summary>
-    public static IReadOnlyList<string> All { get; } = [DevicePolling, PriceImport, PlanDrift];
+    public static IReadOnlyList<string> All { get; } = [DevicePolling, PriceImport, PlanDrift, OutboxRelay, CommandMonitor];
 }

@@ -12,14 +12,21 @@ namespace CheapHours.Persistence.Plans;
 /// <param name="TargetSocPercent">The target charge it planned for.</param>
 /// <param name="EnergyNeededWh">The grid energy it planned for.</param>
 /// <param name="ConfirmedAt">When the owner confirmed it, or <see langword="null"/>.</param>
+/// <param name="ProposedTargetSocPercent">The target a change draft proposes; <see langword="null"/> on other versions.</param>
+/// <param name="ProposedDepartureAt">The departure a change draft proposes (UTC); <see langword="null"/> on other versions.</param>
 public sealed record StoredPlan(
     Plan Plan,
     PlanReason Reason,
     decimal StartSocPercent,
     int TargetSocPercent,
     long EnergyNeededWh,
-    DateTimeOffset? ConfirmedAt = null)
+    DateTimeOffset? ConfirmedAt = null,
+    int? ProposedTargetSocPercent = null,
+    DateTimeOffset? ProposedDepartureAt = null)
 {
+    /// <summary>Gets whether this version proposes a goal change that confirming it applies.</summary>
+    public bool IsChangeDraft => ProposedTargetSocPercent is not null || ProposedDepartureAt is not null;
+
     /// <summary>Gets the document id of this version: <c>{planId}:v{version}</c>.</summary>
     public string VersionId => VersionIdOf(Plan.Id.Value, Plan.Version);
 

@@ -11,4 +11,7 @@ public enum GoalWriteOutcome
 
     /// <summary>Another writer stored this plan version first.</summary>
     VersionTaken,
+
+    /// <summary>The plan moved on before the write: the draft is no longer the current draft, or the running version is no longer confirmed.</summary>
+    PlanChanged,
 }

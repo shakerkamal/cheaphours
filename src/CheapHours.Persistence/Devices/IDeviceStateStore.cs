@@ -39,10 +39,11 @@ public interface IDeviceStateStore
     /// <param name="providerId">The provider id.</param>
     /// <param name="externalId">The vendor's id.</param>
     /// <param name="status">The reported status.</param>
-    /// <param name="at">When the status applies from (UTC).</param>
+    /// <param name="at">When the status applies from (UTC), by the device's report.</param>
+    /// <param name="receivedAt">When CheapHours received the report (UTC); stored with the status for confirming commands.</param>
     /// <param name="cancellationToken">Cancels the operation.</param>
     /// <returns><see langword="true"/> when the status changed.</returns>
-    Task<bool> RecordStatusAsync(string providerId, string externalId, DeviceStatus status, DateTimeOffset at, CancellationToken cancellationToken);
+    Task<bool> RecordStatusAsync(string providerId, string externalId, DeviceStatus status, DateTimeOffset at, DateTimeOffset receivedAt, CancellationToken cancellationToken);
 
     /// <summary>Marks the device <see cref="DeviceStatus.Offline"/> if <paramref name="at"/> is later than its current status time.</summary>
     /// <param name="providerId">The provider id.</param>

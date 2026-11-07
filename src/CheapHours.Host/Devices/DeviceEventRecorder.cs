@@ -50,7 +50,7 @@ internal sealed partial class DeviceEventRecorder(IDeviceStateStore devices, IMe
                     await devices.RecordHardwareAsync(providerId, externalId, hardware, cancellationToken).ConfigureAwait(false);
                     break;
                 case DeviceEvent.StatusChanged status:
-                    await devices.RecordStatusAsync(providerId, externalId, status.Status, status.At, cancellationToken).ConfigureAwait(false);
+                    await devices.RecordStatusAsync(providerId, externalId, status.Status, status.At, occurredAt, cancellationToken).ConfigureAwait(false);
                     break;
                 case DeviceEvent.DeviceRemoved removed:
                     await devices.MarkRemovedAsync(providerId, externalId, removed.At, cancellationToken).ConfigureAwait(false);

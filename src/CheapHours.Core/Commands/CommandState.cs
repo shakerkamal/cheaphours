@@ -26,4 +26,7 @@ public enum CommandState
 
     /// <summary>Retries exhausted; moved to the dead-letter queue and alerted. Terminal.</summary>
     DeadLettered,
+
+    /// <summary>Withdrawn before it was handed to the device, for example by a newer plan version. Terminal.</summary>
+    Cancelled,
 }

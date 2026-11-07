@@ -1,11 +1,13 @@
 using CheapHours.Persistence.ApiKeys;
 using CheapHours.Persistence.ChargePoints;
+using CheapHours.Persistence.Commands;
 using CheapHours.Persistence.Connections;
 using CheapHours.Persistence.Devices;
 using CheapHours.Persistence.Goals;
 using CheapHours.Persistence.Idempotency;
 using CheapHours.Persistence.Plans;
 using CheapHours.Persistence.Locks;
+using CheapHours.Persistence.Outbox;
 using CheapHours.Persistence.Prices;
 using CheapHours.Persistence.ProviderAccounts;
 using CheapHours.Persistence.Telemetry;
@@ -74,7 +76,9 @@ public static class MongoSetup
         services.AddSingleton(sp => CreateClient(sp.GetRequiredService<IOptions<MongoOptions>>().Value));
         services.AddSingleton(sp => sp.GetRequiredService<IMongoClient>().GetDatabase(sp.GetRequiredService<IOptions<MongoOptions>>().Value.Database));
         services.AddSingleton<IChargePointRegistrations, ChargePointRegistrations>();
-        services.AddSingleton<IDeviceStateStore, DeviceStateStore>();
+        services.AddSingleton<DeviceStateStore>();
+        services.AddSingleton<IDeviceStateStore>(sp => sp.GetRequiredService<DeviceStateStore>());
+        services.AddSingleton<IDeviceCommandStateStore>(sp => sp.GetRequiredService<DeviceStateStore>());
         services.AddSingleton<IDeviceReader, DeviceReader>();
         services.AddSingleton<ITelemetryReader, TelemetryReader>();
         services.AddSingleton<IStoredApiKeys, StoredApiKeys>();
@@ -93,6 +97,8 @@ public static class MongoSetup
         services.AddSingleton<IGoalStore, GoalStore>();
         services.AddSingleton<IPlanStore, PlanStore>();
         services.AddSingleton<IIdempotencyStore, IdempotencyStore>();
+        services.AddSingleton<ICommandStore, CommandStore>();
+        services.AddSingleton<IOutboxStore, OutboxStore>();
         return services;
     }
 }

@@ -71,6 +71,21 @@ public sealed class MongoIndexesTests(MongoFixture mongo)
     }
 
     [Fact]
+    public async Task Creates_the_command_indexes()
+    {
+        await MongoIndexes.EnsureAsync(_database, TestContext.Current.CancellationToken);
+
+        var commands = await IndexesAsync(MongoIndexes.Commands);
+        var key = Assert.Single(commands, i => i["key"].AsBsonDocument == new BsonDocument("idempotencyKey", 1));
+        Assert.True(key.GetValue("unique", false).ToBoolean());
+        Assert.Single(commands, i => i["key"].AsBsonDocument == new BsonDocument { { "deviceId", 1 }, { "state", 1 }, { "dueAt", 1 } });
+        Assert.Single(commands, i => i["key"].AsBsonDocument == new BsonDocument { { "state", 1 }, { "nextAttemptAt", 1 } });
+        Assert.Single(commands, i => i["key"].AsBsonDocument == new BsonDocument { { "state", 1 }, { "dueAt", 1 } });
+        Assert.Single(commands, i => i["key"].AsBsonDocument == new BsonDocument { { "ownerId", 1 }, { "_id", 1 } });
+        Assert.Single(commands, i => i["key"].AsBsonDocument == new BsonDocument { { "planId", 1 }, { "planVersion", 1 } });
+    }
+
+    [Fact]
     public async Task Creates_the_goal_and_plan_indexes()
     {
         await MongoIndexes.EnsureAsync(_database, TestContext.Current.CancellationToken);

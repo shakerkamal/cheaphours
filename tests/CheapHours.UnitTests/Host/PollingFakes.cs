@@ -38,7 +38,7 @@ internal sealed class InMemoryDeviceStore : IDeviceStateStore
         return Task.CompletedTask;
     }
 
-    public Task<bool> RecordStatusAsync(string providerId, string externalId, DeviceStatus status, DateTimeOffset at, CancellationToken cancellationToken)
+    public Task<bool> RecordStatusAsync(string providerId, string externalId, DeviceStatus status, DateTimeOffset at, DateTimeOffset receivedAt, CancellationToken cancellationToken)
     {
         Calls.Add($"status {externalId} {status}");
         return Task.FromResult(true);
@@ -74,6 +74,15 @@ internal sealed class InMemoryPublisher : IMessagePublisher
         Published.Enqueue(message);
         return Task.CompletedTask;
     }
+
+    public Task SendToQueueAsync(Message message, string queue, CancellationToken cancellationToken)
+    {
+        Published.Enqueue(message);
+        return Task.CompletedTask;
+    }
+
+    public Task PublishSerializedAsync(SerializedMessage message, string destination, bool toQueue, CancellationToken cancellationToken) =>
+        throw new NotSupportedException("Polling never publishes saved messages.");
 }
 
 /// <summary>A poll schedule with the same due rules as the MongoDB store.</summary>

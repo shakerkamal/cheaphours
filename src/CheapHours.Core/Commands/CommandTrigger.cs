@@ -29,4 +29,7 @@ public enum CommandTrigger
 
     /// <summary>Reconciling decided to send the command again with the same idempotency key.</summary>
     Resend,
+
+    /// <summary>The command is no longer wanted and was never handed to the device.</summary>
+    Cancel,
 }

@@ -1,4 +1,5 @@
 using CheapHours.Core.Ids;
+using CheapHours.Persistence.Commands;
 using CheapHours.Persistence.Plans;
 
 namespace CheapHours.Persistence.Goals;
@@ -26,6 +27,42 @@ public interface IGoalStore
     /// <param name="cancellationToken">Cancels the write.</param>
     /// <returns><see cref="GoalWriteOutcome.Stored"/>, or <see cref="GoalWriteOutcome.VersionTaken"/> with nothing written.</returns>
     Task<GoalWriteOutcome> ChangeAsync(StoredGoal goal, StoredPlan nextVersion, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Stores a change draft above a running confirmed version: inserts the draft and supersedes earlier drafts
+    /// above the running version, which stays confirmed. The goal and its claims are left alone.
+    /// </summary>
+    /// <param name="draft">The change draft; its number is one above the current version.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns><see cref="GoalWriteOutcome.Stored"/>, or <see cref="GoalWriteOutcome.VersionTaken"/> with nothing written.</returns>
+    Task<GoalWriteOutcome> AddChangeDraftAsync(StoredPlan draft, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Confirms a draft, in one transaction: the draft becomes <c>Confirmed</c> at <paramref name="now"/>, the running
+    /// version (if any) becomes <c>Superseded</c> and its unsent commands <c>Cancelled</c>, a change draft's values are
+    /// applied to the goal and its claims, and the new commands are stored with their outbox entries.
+    /// </summary>
+    /// <param name="draft">The draft to confirm, as read.</param>
+    /// <param name="running">The running version it replaces, as read, or <see langword="null"/>.</param>
+    /// <param name="changedGoal">For a change draft, the goal with the proposed values; otherwise <see langword="null"/>.</param>
+    /// <param name="commands">The commands the confirmed version asks for.</param>
+    /// <param name="now">The current time (UTC).</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns><see cref="GoalWriteOutcome.Stored"/>, or <see cref="GoalWriteOutcome.PlanChanged"/> with nothing written.</returns>
+    Task<GoalWriteOutcome> ConfirmAsync(StoredPlan draft, StoredPlan? running, StoredGoal? changedGoal, CommandBatch commands, DateTimeOffset now, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Re-plans a running confirmed version, in one transaction: stores <paramref name="nextVersion"/> (confirmed) above every
+    /// version, supersedes the running version and any change draft above it, cancels the running version's unsent
+    /// commands and stores the new commands with their outbox entries.
+    /// </summary>
+    /// <param name="nextVersion">The new confirmed version.</param>
+    /// <param name="running">The running version it replaces, as read.</param>
+    /// <param name="commands">The commands the new version asks for.</param>
+    /// <param name="now">The current time (UTC).</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns><see cref="GoalWriteOutcome.Stored"/>, or <see cref="GoalWriteOutcome.VersionTaken"/> or <see cref="GoalWriteOutcome.PlanChanged"/> with nothing written.</returns>
+    Task<GoalWriteOutcome> ReplanConfirmedAsync(StoredPlan nextVersion, StoredPlan running, CommandBatch commands, DateTimeOffset now, CancellationToken cancellationToken);
 
     /// <summary>Reads one of <paramref name="ownerId"/>'s goals.</summary>
     /// <param name="ownerId">The owner (D3).</param>

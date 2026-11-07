@@ -243,5 +243,11 @@ public sealed class PriceImportJobTests(MongoFixture mongo, RabbitMqFixture rabb
                 _published.Enqueue(prices);
             }
         }
+
+        public Task SendToQueueAsync(Message message, string queue, CancellationToken cancellationToken) =>
+            inner.SendToQueueAsync(message, queue, cancellationToken);
+
+        public Task PublishSerializedAsync(SerializedMessage message, string destination, bool toQueue, CancellationToken cancellationToken) =>
+            inner.PublishSerializedAsync(message, destination, toQueue, cancellationToken);
     }
 }

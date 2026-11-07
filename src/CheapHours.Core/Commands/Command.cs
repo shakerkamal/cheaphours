@@ -13,14 +13,18 @@ public sealed class Command
 {
     private readonly List<CommandHistoryEntry> _history = [];
 
-    private Command(DeviceCommand request)
+    private Command(DeviceCommand request, DateTimeOffset dueAt)
     {
         Request = request;
+        DueAt = Guard.Utc(dueAt);
         History = new ReadOnlyCollection<CommandHistoryEntry>(_history);
     }
 
     /// <summary>Gets what the device is asked to do.</summary>
     public DeviceCommand Request { get; }
+
+    /// <summary>Gets the time (UTC) from which the command may be sent to the device.</summary>
+    public DateTimeOffset DueAt { get; }
 
     /// <summary>Gets the command's id.</summary>
     public CommandId Id => Request.Id;
@@ -60,13 +64,75 @@ public sealed class Command
     /// <summary>Creates a command in <see cref="CommandState.Pending"/> with zero attempts.</summary>
     /// <param name="request">What the device is asked to do.</param>
     /// <param name="at">The creation time (UTC).</param>
+    /// <param name="dueAt">When the command may be sent (UTC); <paramref name="at"/> when omitted.</param>
     /// <returns>The new command.</returns>
-    /// <exception cref="ArgumentException"><paramref name="at"/> is not UTC.</exception>
-    public static Command Create(DeviceCommand request, DateTimeOffset at)
+    /// <exception cref="ArgumentException"><paramref name="at"/> or <paramref name="dueAt"/> is not UTC.</exception>
+    public static Command Create(DeviceCommand request, DateTimeOffset at, DateTimeOffset? dueAt = null)
     {
         ArgumentNullException.ThrowIfNull(request);
-        var command = new Command(request);
-        command._history.Add(new CommandHistoryEntry(CommandState.Pending, Guard.Utc(at)));
+        Guard.Utc(at);
+        var command = new Command(request, dueAt ?? at);
+        command._history.Add(new CommandHistoryEntry(CommandState.Pending, at));
+        return command;
+    }
+
+    /// <summary>
+    /// Rebuilds a stored command by replaying its history through the transition table, so a stored command
+    /// can only be one the table could have produced. State and attempts follow from the history.
+    /// </summary>
+    /// <param name="request">What the device is asked to do.</param>
+    /// <param name="dueAt">When the command may be sent (UTC).</param>
+    /// <param name="history">Every state the command entered, oldest first, starting with <see cref="CommandState.Pending"/>.</param>
+    /// <param name="nextAttemptAt">The stored next attempt; set exactly when the last step was a retry.</param>
+    /// <returns>The command.</returns>
+    /// <exception cref="ArgumentException">The history is empty, does not start pending, breaks a rule of the triggers, or disagrees with <paramref name="nextAttemptAt"/>.</exception>
+    /// <exception cref="InvalidCommandTransitionException">Two consecutive entries are not a transition in the table.</exception>
+    public static Command Restore(
+        DeviceCommand request,
+        DateTimeOffset dueAt,
+        IReadOnlyList<CommandHistoryEntry> history,
+        DateTimeOffset? nextAttemptAt)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(history);
+        if (history.Count == 0 || history[0].State != CommandState.Pending)
+        {
+            throw new ArgumentException("A command's history starts with Pending.", nameof(history));
+        }
+
+        var command = new Command(request, dueAt);
+        command._history.Add(history[0]);
+        for (var i = 1; i < history.Count; i++)
+        {
+            var entry = history[i];
+            var trigger = TriggerFor(command.State, entry.State);
+            var isLast = i == history.Count - 1;
+            DateTimeOffset? next = null;
+            if (trigger == CommandTrigger.RetryLater)
+            {
+                // Earlier retries have passed; only the last one's schedule is stored.
+                next = isLast
+                    ? nextAttemptAt ?? throw new ArgumentException("The last step is a retry, so the next attempt must be stored.", nameof(nextAttemptAt))
+                    : entry.At;
+                if (next < entry.At)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(nextAttemptAt), next, $"The next attempt cannot be before {entry.At:O}.");
+                }
+            }
+
+            if (trigger is CommandTrigger.Reject or CommandTrigger.RetryLater or CommandTrigger.GiveUp or CommandTrigger.Cancel)
+            {
+                Guard.NotBlank(entry.Reason ?? string.Empty, nameof(history));
+            }
+
+            command.Apply(trigger, entry.At, entry.VendorReference, entry.Reason, next);
+        }
+
+        if (nextAttemptAt is not null && command.NextAttemptAt is null)
+        {
+            throw new ArgumentException("A next attempt is stored, but the last step was not a retry.", nameof(nextAttemptAt));
+        }
+
         return command;
     }
 
@@ -123,6 +189,26 @@ public sealed class Command
     /// <summary>Reconciling decided to send again with the same key: <see cref="CommandState.Reconciling"/> → <see cref="CommandState.Published"/>.</summary>
     /// <param name="at">When (UTC).</param>
     public void Resend(DateTimeOffset at) => Apply(CommandTrigger.Resend, at);
+
+    /// <summary>The command is withdrawn before it was handed to the device: <see cref="CommandState.Pending"/> or <see cref="CommandState.Published"/> → <see cref="CommandState.Cancelled"/>. Not an attempt.</summary>
+    /// <param name="at">When (UTC).</param>
+    /// <param name="reason">Why, for example <c>Superseded by plan_8812:v4</c>.</param>
+    public void Cancel(DateTimeOffset at, string reason) =>
+        Apply(CommandTrigger.Cancel, at, reason: Guard.NotBlank(reason));
+
+    // Each (from, to) pair in the table belongs to exactly one trigger, so a history names its triggers.
+    private static CommandTrigger TriggerFor(CommandState from, CommandState to)
+    {
+        foreach (var ((state, trigger), next) in CommandTransitions.Table)
+        {
+            if (state == from && next == to)
+            {
+                return trigger;
+            }
+        }
+
+        throw new InvalidCommandTransitionException(from, to);
+    }
 
     // The one place state changes: every check runs before anything is mutated.
     private void Apply(

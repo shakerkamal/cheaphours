@@ -34,6 +34,15 @@ internal sealed class DeviceDocument
     [BsonIgnoreIfNull]
     public DateTime? ReportedStatusAt { get; set; }
 
+    /// <summary>Gets or sets when CheapHours received the latest reported status: commands are confirmed against this receipt time, never the device's own clock.</summary>
+    [BsonDateTimeOptions(Kind = DateTimeKind.Utc)]
+    [BsonIgnoreIfNull]
+    public DateTime? StatusReceivedAt { get; set; }
+
+    /// <summary>Gets or sets the device's current charging session as its vendor names it (an OCPP transaction id); absent when none runs.</summary>
+    [BsonIgnoreIfNull]
+    public string? ActiveSessionId { get; set; }
+
     [BsonDateTimeOptions(Kind = DateTimeKind.Utc)]
     [BsonIgnoreIfNull]
     public DateTime? LastSeenAt { get; set; }

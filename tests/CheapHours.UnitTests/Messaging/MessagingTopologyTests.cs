@@ -32,8 +32,36 @@ public sealed class MessagingTopologyTests
             [
                 new BindingDefinition("cheaphours.events", "worker.telemetry", "TelemetryReceived"),
                 new BindingDefinition("cheaphours.events", "worker.planner", "PricesPublished"),
+                new BindingDefinition("cheaphours.events", "worker.dispatch", "CommandRequested"),
+                new BindingDefinition("cheaphours.events", "worker.command-results", "GatewayCommandResult"),
             ],
             Default.Bindings);
+    }
+
+    [Theory]
+    [InlineData("worker.dispatch")]
+    [InlineData("worker.command-results")]
+    public void Command_queues_have_the_same_settings_as_telemetry(string main)
+    {
+        string Rename(string name) => name.Replace("worker.telemetry", main, StringComparison.Ordinal);
+
+        Assert.All(Default.Queues.Where(q => q.Name.StartsWith("worker.telemetry", StringComparison.Ordinal)), telemetry =>
+        {
+            var queue = Queue(Rename(telemetry.Name));
+            Assert.Equal(
+                telemetry.Arguments.ToDictionary(a => a.Key, a => a.Value is string s ? Rename(s) : a.Value),
+                queue.Arguments);
+        });
+    }
+
+    [Fact]
+    public void Command_queues_follow_the_design()
+    {
+        Assert.Equal("worker.dispatch", Default.Dispatch.Main);
+        Assert.Equal("worker.dispatch.dlq", Default.Dispatch.DeadLetter);
+        Assert.Equal("worker.command-results", Default.CommandResults.Main);
+        Assert.Equal(["worker.command-results.retry.1", "worker.command-results.retry.2", "worker.command-results.retry.3"], Default.CommandResults.Retries);
+        Assert.Equal("worker.command-results.dlq", Default.CommandResults.DeadLetter);
     }
 
     [Fact]
@@ -42,7 +70,7 @@ public sealed class MessagingTopologyTests
         Assert.Equal("worker.planner", Default.Planner.Main);
         Assert.Equal(["worker.planner.retry.1", "worker.planner.retry.2", "worker.planner.retry.3"], Default.Planner.Retries);
         Assert.Equal("worker.planner.dlq", Default.Planner.DeadLetter);
-        Assert.Equal(10, Default.Queues.Count);
+        Assert.Equal(20, Default.Queues.Count);
     }
 
     [Fact]

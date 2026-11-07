@@ -16,27 +16,61 @@ public sealed class MessagingTopology
     // dead-letter target is set; we set one, so a message that keeps crashing its consumer is parked.
     private const int DeliveryLimit = 20;
 
+    private readonly string _prefix;
+
     /// <summary>Creates the description from the options.</summary>
     /// <param name="options">The messaging options (prefix and retry delays).</param>
     public MessagingTopology(MessagingOptions options)
     {
         ArgumentNullException.ThrowIfNull(options);
         var prefix = options.QueuePrefix;
+        _prefix = prefix;
 
         EventsExchange = prefix + "cheaphours.events";
         Telemetry = new ConsumerQueues(prefix + "worker.telemetry");
         Planner = new ConsumerQueues(prefix + "worker.planner");
+        Dispatch = new ConsumerQueues(prefix + "worker.dispatch");
+        CommandResults = new ConsumerQueues(prefix + "worker.command-results");
 
         var queues = new List<QueueDefinition>();
         AddConsumer(queues, Telemetry, options);
         AddConsumer(queues, Planner, options);
+        AddConsumer(queues, Dispatch, options);
+        AddConsumer(queues, CommandResults, options);
         Queues = queues;
         Bindings =
         [
             new BindingDefinition(EventsExchange, Telemetry.Main, TelemetryReceived.TypeName),
             new BindingDefinition(EventsExchange, Planner.Main, PricesPublished.TypeName),
+            new BindingDefinition(EventsExchange, Dispatch.Main, CommandRequested.TypeName),
+            new BindingDefinition(EventsExchange, CommandResults.Main, GatewayCommandResult.TypeName),
         ];
     }
+
+    /// <summary>Returns the command queue of a gateway replica, prefix included: <c>{prefix}gateway.{replicaId}.commands</c>.</summary>
+    /// <param name="replicaId">The replica id, as in the connection registry.</param>
+    /// <returns>The queue name.</returns>
+    public string GatewayCommandQueue(string replicaId) => _prefix + GatewayCommand.DestinationFor(replicaId);
+
+    /// <summary>
+    /// Returns the definition of a gateway replica's command queue: a quorum queue the broker removes after
+    /// <paramref name="expiry"/> without a consumer, so a dead replica's queue disappears (ADR-008).
+    /// </summary>
+    /// <param name="replicaId">The replica id.</param>
+    /// <param name="expiry">How long the queue may stay unused.</param>
+    /// <returns>The queue to declare.</returns>
+    public QueueDefinition GatewayCommandQueueDefinition(string replicaId, TimeSpan expiry) =>
+        new(GatewayCommandQueue(replicaId), new Dictionary<string, object?>
+        {
+            ["x-queue-type"] = QuorumQueue,
+            ["x-expires"] = (int)expiry.TotalMilliseconds,
+        });
+
+    /// <summary>Gets the dispatcher's queues (<see cref="CommandRequested"/>).</summary>
+    public ConsumerQueues Dispatch { get; }
+
+    /// <summary>Gets the command-result consumer's queues (<see cref="GatewayCommandResult"/> from the gateway replicas).</summary>
+    public ConsumerQueues CommandResults { get; }
 
     /// <summary>Gets the topic exchange every message is published to.</summary>
     public string EventsExchange { get; }

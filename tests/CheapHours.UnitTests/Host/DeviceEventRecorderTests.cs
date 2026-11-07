@@ -170,6 +170,12 @@ public sealed class DeviceEventRecorderTests : IDisposable
             calls.Add($"publish {message.MessageType}");
             return Task.CompletedTask;
         }
+
+        public Task SendToQueueAsync(Message message, string queue, CancellationToken cancellationToken) =>
+            throw new NotSupportedException("The recorder publishes to the events exchange only.");
+
+        public Task PublishSerializedAsync(SerializedMessage message, string destination, bool toQueue, CancellationToken cancellationToken) =>
+            throw new NotSupportedException("The recorder publishes messages it builds itself.");
     }
 
     private sealed class RecordingDevices(List<string> calls) : IDeviceStateStore
@@ -182,7 +188,7 @@ public sealed class DeviceEventRecorderTests : IDisposable
             return Task.CompletedTask;
         }
 
-        public Task<bool> RecordStatusAsync(string providerId, string externalId, DeviceStatus status, DateTimeOffset at, CancellationToken cancellationToken)
+        public Task<bool> RecordStatusAsync(string providerId, string externalId, DeviceStatus status, DateTimeOffset at, DateTimeOffset receivedAt, CancellationToken cancellationToken)
         {
             calls.Add($"status {externalId} {status} {at:O}");
             return Task.FromResult(true);

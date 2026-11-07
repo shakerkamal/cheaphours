@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using CheapHours.Messaging.Contracts;
 using CheapHours.Messaging.Contracts.Json;
@@ -49,22 +50,16 @@ public sealed class RabbitMqPublisher : IMessagePublisher, IAsyncDisposable
     public static BasicProperties PropertiesFor(Message message)
     {
         ArgumentNullException.ThrowIfNull(message);
+        return Properties(message.MessageId, message.MessageType, message.SchemaVersion, message.OccurredAt, message.Traceparent);
+    }
 
-        var headers = new Dictionary<string, object?> { [SchemaVersionHeader] = message.SchemaVersion };
-        if (message.Traceparent is { } traceparent)
-        {
-            headers[TraceparentHeader] = traceparent;
-        }
-
-        return new BasicProperties
-        {
-            MessageId = message.MessageId.ToString(),
-            Type = message.MessageType,
-            ContentType = JsonContentType,
-            DeliveryMode = DeliveryModes.Persistent,
-            Timestamp = new AmqpTimestamp(message.OccurredAt.ToUnixTimeSeconds()),
-            Headers = headers,
-        };
+    /// <summary>The AMQP properties a saved message travels with; the same as when it was built.</summary>
+    /// <param name="message">The saved message.</param>
+    /// <returns>The properties.</returns>
+    public static BasicProperties PropertiesFor(SerializedMessage message)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        return Properties(message.MessageId, message.Type, message.SchemaVersion, message.OccurredAt, message.Traceparent);
     }
 
     /// <inheritdoc/>
@@ -73,6 +68,28 @@ public sealed class RabbitMqPublisher : IMessagePublisher, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(message);
         var body = JsonSerializer.SerializeToUtf8Bytes(message, message.GetType(), CheapHoursJson.Options);
         return PublishRawAsync(_topology.EventsExchange, message.MessageType, body, PropertiesFor(message), cancellationToken);
+    }
+
+    /// <inheritdoc/>
+    public Task SendToQueueAsync(Message message, string queue, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        ArgumentException.ThrowIfNullOrWhiteSpace(queue);
+        var body = JsonSerializer.SerializeToUtf8Bytes(message, message.GetType(), CheapHoursJson.Options);
+        return PublishRawAsync(string.Empty, queue, body, PropertiesFor(message), cancellationToken);
+    }
+
+    /// <inheritdoc/>
+    public Task PublishSerializedAsync(SerializedMessage message, string destination, bool toQueue, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+        ArgumentException.ThrowIfNullOrWhiteSpace(destination);
+        return PublishRawAsync(
+            toQueue ? string.Empty : _topology.EventsExchange,
+            destination,
+            Encoding.UTF8.GetBytes(message.Json),
+            PropertiesFor(message),
+            cancellationToken);
     }
 
     /// <summary>Publishes a body as is, for example a copy sent to a retry or dead-letter queue.</summary>
@@ -127,6 +144,25 @@ public sealed class RabbitMqPublisher : IMessagePublisher, IAsyncDisposable
     {
         await DropChannelAsync().ConfigureAwait(false);
         _gate.Dispose();
+    }
+
+    private static BasicProperties Properties(Guid messageId, string type, int schemaVersion, DateTimeOffset occurredAt, string? traceparent)
+    {
+        var headers = new Dictionary<string, object?> { [SchemaVersionHeader] = schemaVersion };
+        if (traceparent is not null)
+        {
+            headers[TraceparentHeader] = traceparent;
+        }
+
+        return new BasicProperties
+        {
+            MessageId = messageId.ToString(),
+            Type = type,
+            ContentType = JsonContentType,
+            DeliveryMode = DeliveryModes.Persistent,
+            Timestamp = new AmqpTimestamp(occurredAt.ToUnixTimeSeconds()),
+            Headers = headers,
+        };
     }
 
     private BrokerUnavailableException NotConfirmed() =>

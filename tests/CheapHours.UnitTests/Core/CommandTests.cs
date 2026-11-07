@@ -129,16 +129,16 @@ public sealed class CommandTests
     public void Command_states_match_D7()
     {
         Assert.Equal(
-            ["Pending", "Published", "Sent", "Confirmed", "Reconciling", "Rejected", "DeadLettered"],
+            ["Pending", "Published", "Sent", "Confirmed", "Reconciling", "Rejected", "DeadLettered", "Cancelled"],
             Enum.GetNames<CommandState>());
     }
 
     [Fact]
-    public void Exactly_confirmed_rejected_and_dead_lettered_are_terminal()
+    public void Exactly_confirmed_rejected_dead_lettered_and_cancelled_are_terminal()
     {
         var terminal = Enum.GetValues<CommandState>().Where(s => s.IsTerminal());
 
-        Assert.Equal([CommandState.Confirmed, CommandState.Rejected, CommandState.DeadLettered], terminal);
+        Assert.Equal([CommandState.Confirmed, CommandState.Rejected, CommandState.DeadLettered, CommandState.Cancelled], terminal);
     }
 
     private static string[] ClosedSubtypes(Type baseType) =>

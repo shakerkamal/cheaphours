@@ -53,4 +53,28 @@ public static class TopologyDeclarer
                 ex);
         }
     }
+
+    /// <summary>Declares one queue, such as a gateway replica's command queue.</summary>
+    /// <param name="connection">An open connection.</param>
+    /// <param name="queue">The queue to declare.</param>
+    /// <param name="cancellationToken">Cancels the declaration.</param>
+    /// <returns>A task that completes when the queue is declared.</returns>
+    /// <exception cref="InvalidOperationException">The queue exists with different arguments.</exception>
+    public static async Task DeclareQueueAsync(IConnection connection, QueueDefinition queue, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(connection);
+        ArgumentNullException.ThrowIfNull(queue);
+
+        await using var channel = await connection.CreateChannelAsync(cancellationToken: cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await channel.QueueDeclareAsync(queue.Name, durable: true, exclusive: false, autoDelete: false, arguments: queue.Arguments.ToDictionary(), cancellationToken: cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationInterruptedException ex) when (ex.ShutdownReason?.ReplyCode == PreconditionFailed)
+        {
+            throw new InvalidOperationException(
+                $"Queue '{queue.Name}' already exists with different arguments than this role declares. Delete it or align its arguments, then start again.",
+                ex);
+        }
+    }
 }

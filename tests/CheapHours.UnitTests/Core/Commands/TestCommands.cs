@@ -28,6 +28,7 @@ internal static class TestCommands
         CommandState.Reconciling => [CommandTrigger.Publish, CommandTrigger.Accept, CommandTrigger.TimeOut],
         CommandState.Rejected => [CommandTrigger.Publish, CommandTrigger.Reject],
         CommandState.DeadLettered => [CommandTrigger.Publish, CommandTrigger.GiveUp],
+        CommandState.Cancelled => [CommandTrigger.Cancel],
         _ => throw new ArgumentOutOfRangeException(nameof(state), state, null),
     };
 
@@ -57,6 +58,7 @@ internal static class TestCommands
             case CommandTrigger.Confirm: command.Confirm(at); break;
             case CommandTrigger.TimeOut: command.TimeOut(at); break;
             case CommandTrigger.Resend: command.Resend(at); break;
+            case CommandTrigger.Cancel: command.Cancel(at, "superseded"); break;
             default: throw new ArgumentOutOfRangeException(nameof(trigger), trigger, null);
         }
     }

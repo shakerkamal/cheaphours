@@ -26,6 +26,24 @@ public sealed class PlanStore(IMongoDatabase database) : IPlanStore
     }
 
     /// <inheritdoc/>
+    public async Task<StoredPlan?> GetCurrentAsync(OwnerId ownerId, PlanId planId, CancellationToken cancellationToken)
+    {
+        var document = await _plans.Find(Filter.Eq(d => d.PlanId, planId.Value) & Filter.Eq(d => d.OwnerId, ownerId.Value))
+            .SortByDescending(d => d.Version)
+            .FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        return document is null ? null : PlanDocumentMapper.ToStored(document);
+    }
+
+    /// <inheritdoc/>
+    public async Task<StoredPlan?> GetRunningAsync(GoalId goalId, CancellationToken cancellationToken)
+    {
+        var document = await _plans.Find(Filter.Eq(d => d.GoalId, goalId.Value) & Filter.Eq(d => d.Status, PlanStatus.Confirmed))
+            .SortByDescending(d => d.Version)
+            .FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        return document is null ? null : PlanDocumentMapper.ToStored(document);
+    }
+
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<StoredPlan>> ListVersionsAsync(GoalId goalId, CancellationToken cancellationToken)
     {
         var documents = await _plans.Find(Filter.Eq(d => d.GoalId, goalId.Value)).SortBy(d => d.Version).ToListAsync(cancellationToken).ConfigureAwait(false);
