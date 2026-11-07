@@ -1,6 +1,10 @@
+using System.Collections.Concurrent;
+using System.Globalization;
 using System.Net.WebSockets;
 using System.Text;
+using System.Text.Json.Nodes;
 using CheapHours.Core.Ids;
+using CheapHours.Providers.Ocpp.Framing;
 
 namespace CheapHours.Host.Gateway;
 
@@ -13,6 +17,8 @@ internal sealed class ChargerConnection : IDisposable
     private readonly CancellationTokenSource _stop = new();
     private readonly SemaphoreSlim _send = new(1, 1);
     private readonly TaskCompletionSource _ended = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly ConcurrentDictionary<string, TaskCompletionSource<(OcppFrame Frame, DateTimeOffset At)?>> _pending = new(StringComparer.Ordinal);
+    private int _callsClosed;
     private long _lastSeenTicks;
     private int _reason;
     private int _disposed;
@@ -92,6 +98,83 @@ internal sealed class ChargerConnection : IDisposable
     }
 
     /// <summary>
+    /// Sends <c>[2, uniqueId, action, payload]</c> and waits for the charger's answer with that unique id. The
+    /// receive loop completes the wait (<see cref="TryCompleteCall"/>); a closed connection fails it.
+    /// </summary>
+    /// <param name="action">The action.</param>
+    /// <param name="payload">The request payload.</param>
+    /// <param name="timeout">How long to wait for the answer.</param>
+    /// <param name="time">The clock for the timeout.</param>
+    /// <param name="cancellationToken">Cancels the call.</param>
+    /// <returns>The answer, or why there is none.</returns>
+    public async Task<ChargerCallOutcome> CallAsync(string action, JsonObject payload, TimeSpan timeout, TimeProvider time, CancellationToken cancellationToken)
+    {
+        var uniqueId = Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
+        var reply = new TaskCompletionSource<(OcppFrame Frame, DateTimeOffset At)?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _pending[uniqueId] = reply;
+        try
+        {
+            // A connection that already ended takes no new calls.
+            if (Volatile.Read(ref _callsClosed) != 0)
+            {
+                return new ChargerCallOutcome.Closed();
+            }
+
+            try
+            {
+                await SendAsync(OcppFrameCodec.WriteCall(uniqueId, action, payload), cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is WebSocketException or ObjectDisposedException or InvalidOperationException)
+            {
+                return new ChargerCallOutcome.Closed();
+            }
+
+            try
+            {
+                return await reply.Task.WaitAsync(timeout, time, cancellationToken).ConfigureAwait(false) is { } answer
+                    ? new ChargerCallOutcome.Replied(uniqueId, answer.Frame, answer.At)
+                    : new ChargerCallOutcome.Closed();
+            }
+            catch (TimeoutException)
+            {
+                return new ChargerCallOutcome.TimedOut();
+            }
+        }
+        finally
+        {
+            _pending.TryRemove(uniqueId, out _);
+        }
+    }
+
+    /// <summary>Completes the waiting call that <paramref name="frame"/> answers, if there is one.</summary>
+    /// <param name="frame">A <see cref="OcppCallResult"/> or <see cref="OcppCallError"/> from the charger.</param>
+    /// <param name="receivedAt">When the frame was received (UTC).</param>
+    /// <returns><see langword="true"/> when the frame answered a call this connection sent.</returns>
+    public bool TryCompleteCall(OcppFrame frame, DateTimeOffset receivedAt)
+    {
+        var uniqueId = frame switch
+        {
+            OcppCallResult result => result.UniqueId,
+            OcppCallError error => error.UniqueId,
+            _ => null,
+        };
+        return uniqueId is not null && _pending.TryRemove(uniqueId, out var reply) && reply.TrySetResult((frame, receivedAt));
+    }
+
+    /// <summary>Fails every waiting call as closed; later calls fail at once.</summary>
+    public void FailPendingCalls()
+    {
+        Volatile.Write(ref _callsClosed, 1);
+        foreach (var uniqueId in _pending.Keys)
+        {
+            if (_pending.TryRemove(uniqueId, out var reply))
+            {
+                reply.TrySetResult(null);
+            }
+        }
+    }
+
+    /// <summary>
     /// Starts the close handshake with <paramref name="status"/>. If it cannot be sent within
     /// <paramref name="timeout"/> the socket is aborted; if the charger does not answer, the receive loop is
     /// stopped after <paramref name="timeout"/>.
@@ -145,6 +228,7 @@ internal sealed class ChargerConnection : IDisposable
     {
         if (Interlocked.Exchange(ref _disposed, 1) == 0)
         {
+            FailPendingCalls();
             _stop.Dispose();
             _send.Dispose();
         }

@@ -11,4 +11,5 @@ path `ocpp/v16/schemas/`, commit `aead68e6a2877ba712810525f1ca85ce8db59783`.
 
 Only the schemas for the messages the gateway handles are included (each with its `Response`):
 `BootNotification`, `Heartbeat`, `StatusNotification`, `MeterValues`, `StartTransaction` and
-`StopTransaction`. Add others the same way, unchanged.
+`StopTransaction` from the charger, and `RemoteStartTransaction`, `RemoteStopTransaction` and
+`SetChargingProfile` sent to it. Add others the same way, unchanged.

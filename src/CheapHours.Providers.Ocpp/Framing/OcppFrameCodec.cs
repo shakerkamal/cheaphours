@@ -46,6 +46,26 @@ public static class OcppFrameCodec
         }
     }
 
+    /// <summary>Writes <c>[2, uniqueId, action, payload]</c>, a call from the central system to the charger.</summary>
+    /// <param name="uniqueId">The call's id; the charger's answer carries it.</param>
+    /// <param name="action">The action.</param>
+    /// <param name="payload">The payload object.</param>
+    /// <returns>The frame text.</returns>
+    public static string WriteCall(string uniqueId, string action, JsonObject payload)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(uniqueId);
+        ArgumentException.ThrowIfNullOrEmpty(action);
+        ArgumentNullException.ThrowIfNull(payload);
+
+        return Write(writer =>
+        {
+            writer.WriteNumberValue(2);
+            writer.WriteStringValue(uniqueId);
+            writer.WriteStringValue(action);
+            payload.WriteTo(writer);
+        });
+    }
+
     /// <summary>Writes <c>[3, uniqueId, payload]</c>.</summary>
     /// <param name="uniqueId">The id of the call being answered.</param>
     /// <param name="payload">The payload object.</param>

@@ -143,18 +143,23 @@ public sealed class OcppCallHandler
             return new OcppOutcome(reply);
         }
 
+        // Meter values that name a transaction say it is running, even if the gateway missed its start.
+        var running = call.Payload.TryGetProperty("transactionId", out var id) && id.TryGetInt32(out var transactionId)
+            ? new OcppTransactionUpdate(transactionId, Ended: false)
+            : null;
         var readings = OcppMeterValues.Read(chargePointId, call.Payload.GetProperty("meterValue"), receivedAt);
         return readings.Count == 0
-            ? new OcppOutcome(reply, [new DeviceEvent.MalformedInput(receivedAt, NoUsableMeterValueReason)])
-            : new OcppOutcome(reply, Reported(readings));
+            ? new OcppOutcome(reply, [new DeviceEvent.MalformedInput(receivedAt, NoUsableMeterValueReason)], transaction: running)
+            : new OcppOutcome(reply, Reported(readings), transaction: running);
     }
 
     private static OcppOutcome Start(OcppCall call, string chargePointId, DateTimeOffset receivedAt)
     {
+        var transactionId = TransactionIdAt(receivedAt);
         var reply = new JsonObject
         {
             ["idTagInfo"] = AcceptedIdTag.DeepClone(),
-            ["transactionId"] = TransactionIdAt(receivedAt),
+            ["transactionId"] = transactionId,
         };
 
         var readings = new List<DeviceReading>();
@@ -165,7 +170,7 @@ public sealed class OcppCallHandler
             readings.Add(start);
         }
 
-        return new OcppOutcome(OcppFrameCodec.WriteCallResult(call.UniqueId, reply), Reported(readings));
+        return new OcppOutcome(OcppFrameCodec.WriteCallResult(call.UniqueId, reply), Reported(readings), transaction: new OcppTransactionUpdate(transactionId, Ended: false));
     }
 
     // A stop names no connector: its readings belong to the device.
@@ -184,7 +189,10 @@ public sealed class OcppCallHandler
         }
 
         var reply = new JsonObject { ["idTagInfo"] = AcceptedIdTag.DeepClone() };
-        return new OcppOutcome(OcppFrameCodec.WriteCallResult(call.UniqueId, reply), Reported(readings));
+        var ended = call.Payload.GetProperty("transactionId").TryGetInt32(out var transactionId)
+            ? new OcppTransactionUpdate(transactionId, Ended: true)
+            : null;
+        return new OcppOutcome(OcppFrameCodec.WriteCallResult(call.UniqueId, reply), Reported(readings), transaction: ended);
     }
 
     // The schema allows any integer; one outside int's range is certainly not connector 0 or 1.
@@ -226,8 +234,12 @@ public sealed class OcppCallHandler
             return new OcppOutcome(reply);
         }
 
-        var status = OcppStatusMapping.Map(call.Payload.GetProperty("status").GetString()!);
+        var reported = call.Payload.GetProperty("status").GetString()!;
+        var status = OcppStatusMapping.Map(reported);
         var at = OcppStatusMapping.ReportedTime(OptionalString(call.Payload, "timestamp"), receivedAt);
-        return new OcppOutcome(reply, [new DeviceEvent.StatusChanged(chargePointId, at, status)]);
+
+        // OCPP 1.6: an Available connector runs no transaction, even if the charger restarted without stopping one.
+        var transaction = reported == "Available" ? OcppTransactionUpdate.NoneRunning : null;
+        return new OcppOutcome(reply, [new DeviceEvent.StatusChanged(chargePointId, at, status)], transaction: transaction);
     }
 }

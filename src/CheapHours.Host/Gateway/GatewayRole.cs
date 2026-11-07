@@ -48,6 +48,8 @@ internal static class GatewayRole
 
         services.AddOptions<GatewayOptions>().BindConfiguration(GatewayOptions.SectionName).ValidateOnStart();
         services.AddSingleton<IValidateOptions<GatewayOptions>, GatewayOptionsValidator>();
+        services.AddOptions<GatewayCommandsOptions>().BindConfiguration(GatewayCommandsOptions.SectionName).ValidateOnStart();
+        services.AddSingleton<IValidateOptions<GatewayCommandsOptions>, GatewayCommandsOptionsValidator>();
 
         services.AddSingleton<GatewayState>();
         services.AddSingleton<ConnectionTable>();
@@ -60,6 +62,8 @@ internal static class GatewayRole
         services.AddHostedService<GatewayDrainService>();
         services.AddHostedService<GatewayStartup>();
         services.AddHostedService<HeartbeatMonitor>();
+        services.AddSingleton<GatewayCommandConsumer>();
+        services.AddHostedService(sp => sp.GetRequiredService<GatewayCommandConsumer>());
 
         services.AddHealthChecks()
             .AddCheck<GatewayReadinessHealthCheck>("gateway", tags: [ReadyTag])

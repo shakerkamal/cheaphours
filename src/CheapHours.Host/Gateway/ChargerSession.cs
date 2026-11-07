@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net.WebSockets;
 using System.Text;
 using CheapHours.Core.Devices;
@@ -23,6 +24,7 @@ namespace CheapHours.Host.Gateway;
 internal sealed partial class ChargerSession(
     ConnectionTable connections,
     IDeviceStateStore devices,
+    IDeviceCommandStateStore sessions,
     IConnectionRegistry registry,
     DeviceEventRecorder recorder,
     OcppProvider provider,
@@ -77,6 +79,7 @@ internal sealed partial class ChargerSession(
         finally
         {
             connections.Remove(connection);
+            connection.FailPendingCalls();
             await EndAsync(connection).ConfigureAwait(false);
             connection.MarkEnded();
         }
@@ -192,15 +195,31 @@ internal sealed partial class ChargerSession(
         }
 
         var frame = OcppProvider.Decode(bytes);
+
+        // The answer to a call the gateway sent goes to the command waiting for it; others are handled as before.
+        if (connection.TryCompleteCall(frame, receivedAt))
+        {
+            return;
+        }
+
         var outcome = provider.Handle(frame, connection.ChargePointId, receivedAt);
         var reply = outcome.Reply;
 
         // A refused call carries nothing to record (its malformed-input event is the refusal already logged below).
-        if (outcome.Events.Count > 0 && outcome.Error is null && frame is OcppCall call)
+        // The running transaction is stored before the reply, so a remote stop never misses a started session.
+        if (outcome.Error is null && frame is OcppCall call && (outcome.Events.Count > 0 || outcome.Transaction is not null))
         {
             try
             {
-                await recorder.RecordAsync(OcppProvider.Id, connection.ChargePointId, connection.DeviceId, outcome.Events, receivedAt, Guid.CreateVersion7(receivedAt), seenAt: null, cancellationToken).ConfigureAwait(false);
+                if (outcome.Events.Count > 0)
+                {
+                    await recorder.RecordAsync(OcppProvider.Id, connection.ChargePointId, connection.DeviceId, outcome.Events, receivedAt, Guid.CreateVersion7(receivedAt), seenAt: null, cancellationToken).ConfigureAwait(false);
+                }
+
+                if (outcome.Transaction is { } transaction)
+                {
+                    await TrackTransactionAsync(connection, transaction, cancellationToken).ConfigureAwait(false);
+                }
             }
             catch (Exception ex) when (ex is MongoException or TimeoutException or BrokerUnavailableException)
             {
@@ -219,6 +238,21 @@ internal sealed partial class ChargerSession(
         {
             await connection.SendAsync(reply, cancellationToken).ConfigureAwait(false);
         }
+    }
+
+    // A started or running transaction becomes the device's active session; an ended one clears it only if it is
+    // still the active one, so a late stop of an older transaction keeps the newer session.
+    private Task TrackTransactionAsync(ChargerConnection connection, OcppTransactionUpdate transaction, CancellationToken cancellationToken)
+    {
+        var sessionId = transaction.TransactionId?.ToString(CultureInfo.InvariantCulture);
+        if (sessionId is null)
+        {
+            return sessions.ClearActiveSessionAsync(OcppProvider.Id, connection.ChargePointId, sessionId: null, cancellationToken);
+        }
+
+        return transaction.Ended
+            ? sessions.ClearActiveSessionAsync(OcppProvider.Id, connection.ChargePointId, sessionId, cancellationToken)
+            : sessions.SetActiveSessionAsync(OcppProvider.Id, connection.ChargePointId, sessionId, cancellationToken);
     }
 
     // Action names come from the charger: only log names OCPP defines, never arbitrary text.

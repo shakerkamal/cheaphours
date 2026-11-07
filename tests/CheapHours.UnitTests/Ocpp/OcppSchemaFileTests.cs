@@ -20,6 +20,12 @@ public sealed class OcppSchemaFileTests
         { "StartTransactionResponse.json", "9330ff054409c0ea8cc9bca1cd40e3b3352e0d8b7f996d765f26fab6d0129540" },
         { "StopTransaction.json", "9473743d54e33d222a4d3dd5042f3c39034ae1d8939fa0fd9aa38d0a561b557f" },
         { "StopTransactionResponse.json", "8cad55b0c51cb044923fee88959698acd1bb68c656d774f48bf578b8379cc0f9" },
+        { "RemoteStartTransaction.json", "57ba45cf2e91c333e22f6a7d79beeb70dde362e02da130636fbbefc95c7bea3b" },
+        { "RemoteStartTransactionResponse.json", "63aefad83ae23a9044e087692463efacc5f8086fe25f5e824417c9ea6bbb54e0" },
+        { "RemoteStopTransaction.json", "d16df879894d00e4478eb6037eb4f1caf0a9d9edebefa7aff6160d88352aefdc" },
+        { "RemoteStopTransactionResponse.json", "a846b40b409bc6901d75afeccac0f79f0f7bb73a2a868c13a45db5a73ad0b22f" },
+        { "SetChargingProfile.json", "9f45ccfdaa050821696fcd78907246803aa88e99709d372a17f8869e4c806d56" },
+        { "SetChargingProfileResponse.json", "917cc108e109bb289a4213458ca04c397d0f0999ceab7cedc30ec99478daddb2" },
     };
 
     [Theory]
