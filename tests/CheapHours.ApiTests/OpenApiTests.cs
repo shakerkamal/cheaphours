@@ -7,10 +7,18 @@ namespace CheapHours.ApiTests;
 public sealed partial class OpenApiTests(ApiFactory factory) : IClassFixture<ApiFactory>
 {
     private static readonly string[] Methods = ["get", "post", "put", "patch", "delete"];
-    private static readonly string[] CommonErrorStatuses = ["401", "403", "429", "500", "501"];
+    private static readonly string[] CommonErrorStatuses = ["401", "403", "429", "500"];
 
     [Fact]
-    public async Task Document_lists_exactly_the_ten_v1_operations_with_their_scopes()
+    public async Task No_operation_answers_501()
+    {
+        var doc = await GetDocumentAsync();
+
+        Assert.All(Operations(doc), o => Assert.False(o.Operation.GetProperty("responses").TryGetProperty("501", out _), $"{o.Method} {o.Path} still documents 501"));
+    }
+
+    [Fact]
+    public async Task Document_lists_exactly_the_eleven_v1_operations_with_their_scopes()
     {
         var doc = await GetDocumentAsync();
 

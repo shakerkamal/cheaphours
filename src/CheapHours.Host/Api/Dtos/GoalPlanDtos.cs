@@ -35,6 +35,8 @@ internal sealed record GoalCreatedResponse(GoalDto Goal, PlanDto Plan);
 /// <param name="TargetMissed">Whether the available slots cannot reach the target before departure.</param>
 /// <param name="PricesComplete">Whether every chosen slot and every slot of charging on arrival had a published price; when not, unpriced slots add nothing to either cost.</param>
 /// <param name="ExpiresAt">When a draft expires (UTC); absent once confirmed.</param>
+/// <param name="ProposedTargetSocPercent">The target a change draft proposes; confirming it applies it. Null on other versions.</param>
+/// <param name="ProposedDepartureAt">The departure a change draft proposes (UTC); confirming it applies it. Null on other versions.</param>
 internal sealed record PlanDto(
     PlanId Id,
     GoalId GoalId,
@@ -46,7 +48,9 @@ internal sealed record PlanDto(
     decimal SavingsEur,
     bool TargetMissed,
     bool PricesComplete,
-    DateTimeOffset? ExpiresAt);
+    DateTimeOffset? ExpiresAt,
+    int? ProposedTargetSocPercent = null,
+    DateTimeOffset? ProposedDepartureAt = null);
 
 /// <summary>The body of <c>PATCH /v1/goals/{id}</c>: the values to change; at least one is required.</summary>
 /// <param name="TargetSocPercent">The new target state of charge, 1–100, or absent to keep it.</param>

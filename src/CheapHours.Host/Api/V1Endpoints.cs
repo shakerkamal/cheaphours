@@ -1,5 +1,6 @@
 using CheapHours.Core.Ids;
 using CheapHours.Host.Api.Auth;
+using CheapHours.Host.Api.Commands;
 using CheapHours.Host.Api.Devices;
 using CheapHours.Host.Api.Dtos;
 using CheapHours.Host.Api.Errors;
@@ -12,8 +13,8 @@ using Microsoft.AspNetCore.Mvc;
 namespace CheapHours.Host.Api;
 
 /// <summary>
-/// The eleven <c>/v1</c> endpoints. Their contract (paths, scopes, parameters, response types) is fixed here;
-/// built endpoints point at their handlers, the others answer 501 until the feature named in their stub builds them.
+/// The eleven <c>/v1</c> endpoints. Their contract (paths, scopes, parameters, response types) is fixed here, and
+/// each points at its handler.
 /// </summary>
 internal static class V1Endpoints
 {
@@ -34,7 +35,8 @@ internal static class V1Endpoints
             .RequireAuthorization(ApiScopes.ReadPolicy).Produces<DeviceDto>().ProducesProblem(StatusCodes.Status400BadRequest).ProducesProblem(StatusCodes.Status404NotFound);
         devices.MapGet("/{id}/telemetry", DeviceEndpoints.TelemetryAsync).WithName("GetDeviceTelemetry").WithSummary("Readings over time, in 15-minute buckets.")
             .RequireAuthorization(ApiScopes.ReadPolicy).Produces<Page<TelemetryBucketDto>>().ProducesProblem(StatusCodes.Status400BadRequest).ProducesProblem(StatusCodes.Status404NotFound);
-        devices.MapPost("/{id}/commands", SendCommand).WithName("SendDeviceCommand").WithSummary("Send one command directly.")
+        devices.MapPost("/{id}/commands", CommandEndpoints.SendAsync).Idempotent().WithName("SendDeviceCommand").WithSummary("Send one command directly.")
+            .Accepts<CreateCommandRequest>("application/json")
             .RequireAuthorization(ApiScopes.ExecutePolicy).Produces<CommandAcceptedResponse>(StatusCodes.Status202Accepted)
             .ProducesProblem(StatusCodes.Status400BadRequest).ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict).ProducesProblem(StatusCodes.Status422UnprocessableEntity);
@@ -54,12 +56,12 @@ internal static class V1Endpoints
         goals.MapGet("/{id}/plan", GoalEndpoints.GetPlanAsync).WithName("GetGoalPlan").WithSummary("The goal's current plan with cost and savings.")
             .RequireAuthorization(ApiScopes.ReadPolicy).Produces<PlanDto>().ProducesProblem(StatusCodes.Status400BadRequest).ProducesProblem(StatusCodes.Status404NotFound);
 
-        v1.MapPost("/plans/{id}/confirm", ConfirmPlan).WithTags("Goals and plans").WithName("ConfirmPlan").WithSummary("Turn a draft plan into commands.")
+        v1.MapPost("/plans/{id}/confirm", GoalEndpoints.ConfirmAsync).Idempotent().WithTags("Goals and plans").WithName("ConfirmPlan").WithSummary("Turn a draft plan into commands.")
             .RequireAuthorization(ApiScopes.ExecutePolicy).Produces<PlanConfirmedResponse>(StatusCodes.Status202Accepted)
             .ProducesProblem(StatusCodes.Status400BadRequest).ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status409Conflict).ProducesProblem(StatusCodes.Status410Gone);
 
-        v1.MapGet("/commands/{id}", GetCommand).WithTags("Commands").WithName("GetCommand").WithSummary("A command's state and history.")
+        v1.MapGet("/commands/{id}", CommandEndpoints.GetAsync).WithTags("Commands").WithName("GetCommand").WithSummary("A command's state and history.")
             .RequireAuthorization(ApiScopes.ReadPolicy).Produces<CommandDto>().ProducesProblem(StatusCodes.Status400BadRequest).ProducesProblem(StatusCodes.Status404NotFound);
 
         v1.MapGet("/savings", SavingsEndpoints.GetAsync).WithTags("Savings").WithName("GetSavings").WithSummary("Savings over a period, against charging on arrival.")
@@ -67,13 +69,4 @@ internal static class V1Endpoints
 
         return v1;
     }
-
-    private static IResult SendCommand(DeviceId id, CreateCommandRequest body, [FromHeader(Name = IdempotencyKeyHeader)] string? idempotencyKey) => NotYet("command dispatch");
-
-    private static IResult ConfirmPlan(PlanId id, [FromHeader(Name = IdempotencyKeyHeader)] string? idempotencyKey) => NotYet("command dispatch");
-
-    private static IResult GetCommand(CommandId id) => NotYet("command dispatch");
-
-    private static IResult NotYet(string feature) =>
-        ErrorCatalogue.NotImplemented.ToResult($"This endpoint is not built yet; it arrives with {feature}.");
 }

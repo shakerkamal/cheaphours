@@ -14,8 +14,9 @@ public sealed class AuthTests(ApiFactory factory) : IClassFixture<ApiFactory>
     private static readonly Uri Devices = new("/v1/devices", UriKind.Relative);
     private static readonly Uri Confirm = new("/v1/plans/plan_1/confirm", UriKind.Relative);
 
-    // A read endpoint that is not built yet, so passing auth shows as 501 without a database.
-    private static readonly Uri UnbuiltRead = new("/v1/commands/cmd_1", UriKind.Relative);
+    // Requests the handlers refuse before any lookup, so passing auth shows as 400 without a database.
+    private static readonly Uri InvalidRead = new("/v1/devices?limit=0", UriKind.Relative);
+    private static readonly Uri InvalidExecute = new("/v1/devices/dev_wallbox_01/commands", UriKind.Relative);
 
     [Fact]
     public void Test_host_does_not_read_the_developers_user_secrets()
@@ -65,11 +66,12 @@ public sealed class AuthTests(ApiFactory factory) : IClassFixture<ApiFactory>
     {
         using var client = factory.CreateClient(ApiFactory.ExecuteKey);
 
-        using var read = await client.GetAsync(UnbuiltRead, TestContext.Current.CancellationToken);
-        using var execute = await client.PostAsync(Confirm, content: null, TestContext.Current.CancellationToken);
+        using var read = await client.GetAsync(InvalidRead, TestContext.Current.CancellationToken);
+        using var body = new StringContent("{}", System.Text.Encoding.UTF8, "application/json");
+        using var execute = await client.PostAsync(InvalidExecute, body, TestContext.Current.CancellationToken);
 
-        Assert.Equal(HttpStatusCode.NotImplemented, read.StatusCode);
-        Assert.Equal(HttpStatusCode.NotImplemented, execute.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, read.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, execute.StatusCode);
     }
 
     [Fact]

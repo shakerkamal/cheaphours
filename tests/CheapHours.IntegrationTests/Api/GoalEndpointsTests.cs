@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using CheapHours.Core;
+using CheapHours.Core.Goals;
 using CheapHours.Core.Ids;
 using CheapHours.IntegrationTests.Goals;
 using CheapHours.Persistence.Plans;
@@ -158,19 +159,63 @@ public sealed class GoalEndpointsTests(SharedApi shared) : IClassFixture<SharedA
         await AssertProblemAsync(response, HttpStatusCode.NotFound, "not-found");
     }
 
+    // planning-api: "Confirmed plan" (both scenarios).
     [Fact]
-    public async Task Changing_a_goal_with_a_confirmed_plan_gets_409_and_changes_nothing()
+    public async Task Changing_a_goal_with_a_confirmed_plan_gets_200_with_a_change_draft_and_the_goal_unchanged()
     {
         var goalId = await CreateGoalAsync();
         var plans = new PlanStore(shared.Database);
         var plan = await plans.GetCurrentAsync(GoalId.Parse(goalId), Ct);
-        await GoalSeeds.ConfirmAsync(shared.Database, plan!.VersionId, DateTimeOffset.UtcNow);
+        using (var execute = shared.Api.CreateClient(ApiFactory.ExecuteKeyA))
+        {
+            using var confirmed = await execute.PostAsync(new Uri($"/v1/plans/{plan!.Plan.Id}/confirm", UriKind.Relative), null, Ct);
+            Assert.Equal(HttpStatusCode.Accepted, confirmed.StatusCode);
+        }
+
         using var client = shared.Api.CreateClient(ApiFactory.ReadKeyA);
 
         using var response = await PatchAsync(client, goalId, """{"targetSocPercent":90}""");
 
-        await AssertProblemAsync(response, HttpStatusCode.Conflict, "conflict");
-        Assert.Single(await plans.ListVersionsAsync(GoalId.Parse(goalId), Ct));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>(Ct);
+        Assert.Equal(80, body.GetProperty("goal").GetProperty("targetSocPercent").GetInt32());
+        var draft = body.GetProperty("plan");
+        Assert.Equal((2, "Draft", 90), (draft.GetProperty("version").GetInt32(), draft.GetProperty("status").GetString(), draft.GetProperty("proposedTargetSocPercent").GetInt32()));
+        Assert.Equal(PlanStatus.Confirmed, (await plans.GetRunningAsync(GoalId.Parse(goalId), Ct))!.Plan.Status);
+    }
+
+    // planning-api: "Reading a change draft".
+    [Fact]
+    public async Task Reading_a_change_draft_shows_its_proposed_departure_and_target()
+    {
+        var goalId = await CreateGoalAsync();
+        var plan = await new PlanStore(shared.Database).GetCurrentAsync(GoalId.Parse(goalId), Ct);
+        using (var execute = shared.Api.CreateClient(ApiFactory.ExecuteKeyA))
+        {
+            using var confirmed = await execute.PostAsync(new Uri($"/v1/plans/{plan!.Plan.Id}/confirm", UriKind.Relative), null, Ct);
+        }
+
+        using var client = shared.Api.CreateClient(ApiFactory.ReadKeyA);
+        var later = Departure().AddHours(1);
+        using var changed = await PatchAsync(client, goalId, $$"""{"departureAt":"{{later.UtcDateTime:yyyy-MM-ddTHH:mm:ssZ}}"}""");
+        Assert.Equal(HttpStatusCode.OK, changed.StatusCode);
+
+        var read = await client.GetFromJsonAsync<JsonElement>(new Uri($"/v1/goals/{goalId}/plan", UriKind.Relative), Ct);
+
+        Assert.Equal(later, read.GetProperty("proposedDepartureAt").GetDateTimeOffset());
+        Assert.Equal(80, read.GetProperty("proposedTargetSocPercent").GetInt32());
+    }
+
+    [Fact]
+    public async Task Draft_plan_shows_no_proposed_values()
+    {
+        var goalId = await CreateGoalAsync();
+        using var client = shared.Api.CreateClient(ApiFactory.ReadKeyA);
+
+        var read = await client.GetFromJsonAsync<JsonElement>(new Uri($"/v1/goals/{goalId}/plan", UriKind.Relative), Ct);
+
+        Assert.Equal(JsonValueKind.Null, read.GetProperty("proposedTargetSocPercent").ValueKind);
+        Assert.Equal(JsonValueKind.Null, read.GetProperty("proposedDepartureAt").ValueKind);
     }
 
     [Fact]

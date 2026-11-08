@@ -38,6 +38,7 @@ internal static class ApiRole
         builder.Services.TryAddSingleton(TimeProvider.System);
         builder.Services.AddMongoPersistence(builder.Configuration);
         builder.Services.AddGoalPlanning();
+        builder.Services.AddSingleton<CheapHours.Host.Commands.CommandService>();
         builder.Services.AddSingleton<ApiState>();
         builder.Services.AddHostedService<ApiStartup>();
         builder.Services.AddHealthChecks()

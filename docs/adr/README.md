@@ -9,9 +9,9 @@ the old one.
 | [001](001-modular-monolith.md) | Modular monolith in three process roles | Accepted |
 | [002](002-mongodb-time-series-telemetry.md) | MongoDB time-series collection for telemetry | Accepted |
 | [003](003-rabbitmq.md) | RabbitMQ with quorum queues and delay-queue retries | Accepted |
-| 004 | Own small outbox and inbox on RabbitMQ.Client | Planned |
+| [004](004-own-outbox-and-inbox.md) | Own small outbox and inbox on RabbitMQ.Client | Accepted |
 | [005](005-greedy-cheapest-slot-planner.md) | Greedy cheapest-slot planner | Accepted |
-| 006 | The OCPP 1.6J messages smart charging needs | Planned |
+| [006](006-ocpp-16j-smart-charging-messages.md) | The OCPP 1.6J messages smart charging needs | Accepted |
 | 007 | The agent changes devices only through confirmed plans | Planned |
 | [008](008-gateway-command-routing.md) | Gateway command routing through per-replica queues | Accepted |
 

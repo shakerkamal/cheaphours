@@ -19,11 +19,11 @@ internal sealed class CheapHoursOperationTransformer : IOpenApiOperationTransfor
     private const string ScopePolicyPrefix = "scope:";
     private const string DirectCommandOperationId = "SendDeviceCommand";
 
-    // Every /v1 operation can answer these, whatever it does.
+    // Every /v1 operation can answer these, whatever it does. Every operation is built, so none answers 501.
     private static readonly int[] CommonStatuses =
     [
         StatusCodes.Status401Unauthorized, StatusCodes.Status403Forbidden, StatusCodes.Status429TooManyRequests,
-        StatusCodes.Status500InternalServerError, StatusCodes.Status501NotImplemented,
+        StatusCodes.Status500InternalServerError,
     ];
 
     /// <inheritdoc/>

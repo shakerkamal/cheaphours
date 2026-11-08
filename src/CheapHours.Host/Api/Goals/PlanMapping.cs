@@ -35,6 +35,8 @@ internal static class PlanMapping
             arrival - expected,
             plan.TargetMissed,
             plan.PricesComplete,
-            plan.ExpiresAtUtc);
+            plan.ExpiresAtUtc,
+            stored.IsChangeDraft ? stored.ProposedTargetSocPercent ?? stored.TargetSocPercent : null,
+            stored.ProposedDepartureAt);
     }
 }

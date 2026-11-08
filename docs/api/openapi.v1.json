@@ -79,6 +79,12 @@
             "format": "date-time",
             "type": "string"
           },
+          "reason": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "state": {
             "$ref": "#/components/schemas/CommandState"
           },
@@ -92,7 +98,8 @@
         "required": [
           "state",
           "at",
-          "vendorRef"
+          "vendorRef",
+          "reason"
         ],
         "type": "object"
       },
@@ -124,7 +131,8 @@
           "Confirmed",
           "Reconciling",
           "Rejected",
-          "DeadLettered"
+          "DeadLettered",
+          "Cancelled"
         ]
       },
       "CommandType": {
@@ -437,6 +445,20 @@
           },
           "pricesComplete": {
             "type": "boolean"
+          },
+          "proposedDepartureAt": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "proposedTargetSocPercent": {
+            "format": "int32",
+            "type": [
+              "null",
+              "integer"
+            ]
           },
           "savingsEur": {
             "format": "double",
@@ -818,16 +840,6 @@
               }
             },
             "description": "`internal`: An unexpected error occurred."
-          },
-          "501": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "`not-implemented`: This endpoint is not implemented yet."
           }
         },
         "security": [
@@ -930,16 +942,6 @@
               }
             },
             "description": "`internal`: An unexpected error occurred."
-          },
-          "501": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "`not-implemented`: This endpoint is not implemented yet."
           }
         },
         "security": [
@@ -1046,16 +1048,6 @@
               }
             },
             "description": "`internal`: An unexpected error occurred."
-          },
-          "501": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "`not-implemented`: This endpoint is not implemented yet."
           }
         },
         "security": [
@@ -1208,16 +1200,6 @@
               }
             },
             "description": "`internal`: An unexpected error occurred."
-          },
-          "501": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "`not-implemented`: This endpoint is not implemented yet."
           }
         },
         "security": [
@@ -1364,16 +1346,6 @@
               }
             },
             "description": "`internal`: An unexpected error occurred."
-          },
-          "501": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "`not-implemented`: This endpoint is not implemented yet."
           }
         },
         "security": [
@@ -1509,16 +1481,6 @@
               }
             },
             "description": "`internal`: An unexpected error occurred."
-          },
-          "501": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "`not-implemented`: This endpoint is not implemented yet."
           }
         },
         "security": [
@@ -1655,16 +1617,6 @@
               }
             },
             "description": "`internal`: An unexpected error occurred."
-          },
-          "501": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "`not-implemented`: This endpoint is not implemented yet."
           }
         },
         "security": [
@@ -1771,16 +1723,6 @@
               }
             },
             "description": "`internal`: An unexpected error occurred."
-          },
-          "501": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "`not-implemented`: This endpoint is not implemented yet."
           }
         },
         "security": [
@@ -1915,16 +1857,6 @@
               }
             },
             "description": "`internal`: An unexpected error occurred."
-          },
-          "501": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "`not-implemented`: This endpoint is not implemented yet."
           }
         },
         "security": [
@@ -2053,16 +1985,6 @@
               }
             },
             "description": "`internal`: An unexpected error occurred."
-          },
-          "501": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "`not-implemented`: This endpoint is not implemented yet."
           }
         },
         "security": [
@@ -2168,16 +2090,6 @@
               }
             },
             "description": "`internal`: An unexpected error occurred."
-          },
-          "501": {
-            "content": {
-              "application/problem+json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProblemDetails"
-                }
-              }
-            },
-            "description": "`not-implemented`: This endpoint is not implemented yet."
           }
         },
         "security": [

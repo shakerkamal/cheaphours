@@ -133,6 +133,39 @@ internal static class GoalEndpoints
         return TypedResults.Ok(PlanMapping.ToDto(plan, time.GetUtcNow()));
     }
 
+    /// <summary><c>POST /v1/plans/{id}/confirm</c>: confirms the plan's current draft and returns the commands it created.</summary>
+    /// <param name="id">The plan.</param>
+    /// <param name="idempotencyKey">The <c>Idempotency-Key</c> header; the idempotency middleware handles it.</param>
+    /// <param name="request">The HTTP request, for its trace context.</param>
+    /// <param name="user">The authenticated key.</param>
+    /// <param name="planning">The goal planning service.</param>
+    /// <param name="time">The clock.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>202 with the plan and its commands, or 404, 409, 410.</returns>
+    public static async Task<IResult> ConfirmAsync(
+        PlanId id,
+        [FromHeader(Name = V1Endpoints.IdempotencyKeyHeader)] string? idempotencyKey,
+        HttpRequest request,
+        ClaimsPrincipal user,
+        GoalPlanningService planning,
+        TimeProvider time,
+        CancellationToken cancellationToken)
+    {
+        var traceparent = Commands.CommandEndpoints.Traceparent(request);
+        return await planning.ConfirmAsync(DeviceEndpoints.Owner(user), id, cancellationToken, traceparent).ConfigureAwait(false) switch
+        {
+            ConfirmOutcome.Confirmed confirmed => TypedResults.Accepted(
+                $"/v1/goals/{confirmed.Goal.Goal.Id}/plan",
+                new PlanConfirmedResponse(
+                    PlanMapping.ToDto(confirmed.Plan, time.GetUtcNow()),
+                    [.. confirmed.Commands.Select(c => new CommandAcceptedResponse(c.Id, c.Command.State))])),
+            ConfirmOutcome.NotFound => ErrorCatalogue.NotFound.ToResult("No plan with this id exists for this API key."),
+            ConfirmOutcome.Expired => ErrorCatalogue.PlanExpired.ToResult("The draft expired; change the goal or wait for new prices to get a new draft."),
+            ConfirmOutcome.Conflict conflict => ErrorCatalogue.Conflict.ToResult(conflict.Detail),
+            _ => throw new InvalidOperationException("Unknown confirm outcome."),
+        };
+    }
+
     private static void CheckTarget(int target, Dictionary<string, string[]> errors)
     {
         if (target is < 1 or > 100)

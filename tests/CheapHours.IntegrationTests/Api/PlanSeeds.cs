@@ -17,7 +17,8 @@ internal static class PlanSeeds
         decimal arrival,
         PlanStatus status = PlanStatus.Draft,
         bool pricesComplete = true,
-        DateTimeOffset? madeAt = null)
+        DateTimeOffset? madeAt = null,
+        IReadOnlyList<DateTimeOffset>? slotStarts = null)
     {
         var suffix = Guid.NewGuid().ToString("N")[..12];
         var made = madeAt ?? DateTimeOffset.UtcNow;
@@ -32,7 +33,7 @@ internal static class PlanSeeds
             owner,
             1,
             status,
-            [new PlanSlot(Core.SlotGrid.Floor(departure).AddHours(-3), 11_000)],
+            slotStarts is null ? [new PlanSlot(Core.SlotGrid.Floor(departure).AddHours(-3), 11_000)] : [.. slotStarts.Select(s => new PlanSlot(s, 11_000))],
             expected,
             arrival,
             targetMissed: false,

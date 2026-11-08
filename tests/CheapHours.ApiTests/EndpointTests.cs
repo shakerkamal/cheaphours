@@ -22,33 +22,11 @@ public sealed class EndpointTests(ApiFactory factory) : IClassFixture<ApiFactory
         { "GET", $"/v1/savings?{Range}", null },
     };
 
-    // Built endpoints read MongoDB, which these tests do not have; the integration tests cover them.
-    public static TheoryData<string, string, string?> NotBuiltEndpoints
-    {
-        get
-        {
-            string[] built =
-            [
-                "GET /v1/devices", "GET /v1/devices/dev_wallbox_01", $"GET /v1/devices/dev_wallbox_01/telemetry?{Range}&resolution=15m",
-                $"GET /v1/prices?zone=DE-LU&{Range}", "POST /v1/goals", "PATCH /v1/goals/goal_1", "GET /v1/goals/goal_1/plan", $"GET /v1/savings?{Range}",
-            ];
-            var data = new TheoryData<string, string, string?>();
-            foreach (var row in V1Endpoints)
-            {
-                var (method, path, body) = row.Data;
-                if (!built.Contains($"{method} {path}", StringComparer.Ordinal))
-                {
-                    data.Add(method, path, body);
-                }
-            }
-
-            return data;
-        }
-    }
-
+    // Every endpoint is built. They read MongoDB, which these tests do not have (the integration tests cover them),
+    // so the answer is whatever the handler gives without a database, but never 501.
     [Theory]
-    [MemberData(nameof(NotBuiltEndpoints))]
-    public async Task Every_unbuilt_v1_endpoint_answers_501_after_authentication(string method, string path, string? body)
+    [MemberData(nameof(V1Endpoints))]
+    public async Task No_v1_endpoint_answers_501(string method, string path, string? body)
     {
         using var client = factory.CreateClient(ApiFactory.ExecuteKey);
         using var request = new HttpRequestMessage(new HttpMethod(method), new Uri(path, UriKind.Relative));
@@ -60,7 +38,30 @@ public sealed class EndpointTests(ApiFactory factory) : IClassFixture<ApiFactory
 
         using var response = await client.SendAsync(request, TestContext.Current.CancellationToken);
 
-        await ProblemAssert.IsProblemAsync(response, HttpStatusCode.NotImplemented, "not-implemented");
+        Assert.NotEqual(HttpStatusCode.NotImplemented, response.StatusCode);
+    }
+
+    // command-api: "Limit without a value"; the body is checked before any lookup, field by field.
+    [Theory]
+    [InlineData("""{"type":"SetPowerLimit"}""", "parameters.maxPowerW")]
+    [InlineData("""{"type":"StopCharging","parameters":{"maxPowerW":3700}}""", "parameters.maxPowerW")]
+    [InlineData("""{"type":"SetPowerLimit","parameters":{"maxPowerW":0}}""", "parameters.maxPowerW")]
+    [InlineData("""{"type":"Explode"}""", "type")]
+    [InlineData("""{}""", "type")]
+    [InlineData("""[1,2]""", "body")]
+    public async Task Malformed_command_body_is_a_validation_problem_keyed_by_the_field(string body, string field)
+    {
+        using var client = factory.CreateClient(ApiFactory.ExecuteKey);
+        // No Idempotency-Key: with one, the idempotency middleware reads MongoDB before the handler runs.
+        using var request = new HttpRequestMessage(HttpMethod.Post, new Uri("/v1/devices/dev_wallbox_01/commands", UriKind.Relative))
+        {
+            Content = new StringContent(body, Encoding.UTF8, "application/json"),
+        };
+
+        using var response = await client.SendAsync(request, TestContext.Current.CancellationToken);
+
+        var problem = await ProblemAssert.IsProblemAsync(response, HttpStatusCode.BadRequest, "validation");
+        Assert.True(problem.GetProperty("errors").TryGetProperty(field, out _), $"no error for {field}: {problem.GetRawText()}");
     }
 
     [Theory]

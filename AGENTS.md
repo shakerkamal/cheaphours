@@ -22,8 +22,8 @@ page is binding.
 
 ## Status
 
-**Next:** the gate review of the prices-and-planner change, then propose command dispatch and
-reliability.
+**Next:** observability: OpenTelemetry traces through the messages, the six metrics and a local Aspire dashboard
+(needs its own `/opsx:propose`).
 
 ### Done
 
@@ -137,6 +137,13 @@ reliability.
   deterministic planned-command keys, retry policy with jittered backoff and `Retry-After`, reconcile
   decision (confirm, resend or fail) against the device's last observation. Property tests (FsCheck)
   cover terminal states and key uniqueness.
+  - Eight states (D7): `Cancelled` is terminal, reached by `Cancel` from `Pending` or `Published` with a
+    reason, and never counts as an attempt.
+  - A command carries the time it is due (UTC, defaulting to its creation). `Command.Restore` rebuilds a
+    stored command by replaying its history through the table and refuses one the table cannot produce.
+  - `CommandConfirmation.IsConfirmed`: a report received after the send that shows the requested state
+    (the same rule the reconcile decider confirms by); with `CommandVendorReferences.AlreadyInEffect`, an
+    older matching report counts too.
 - **Local environment:** `docker compose` with MongoDB 8.0 (single-node replica set, self-initialising),
   RabbitMQ 4.2, the Solidstudio OCPP 1.6 simulator built from a pinned commit, the car-cloud
   simulator (`5090`) and the heat-pump-cloud simulator (`5091`, posting to the gateway through
@@ -173,6 +180,43 @@ reliability.
     `/health/ready` (MongoDB and RabbitMQ reachable, not draining).
   - MongoDB and broker setup retry in the background, so a slow dependency delays readiness instead of
     crashing the gateway.
+  - Commands (ADR-008): once initialised, each replica declares and consumes `gateway.{replicaId}.commands`
+    (quorum, `x-expires` 10 min, prefetch 16) and stops consuming when draining; a broker outage is waited
+    out. A start for a charger with an active transaction, or a stop for one without, is answered
+    `already-in-effect` without a call; otherwise `OcppCommandCalls` builds `RemoteStartTransaction`,
+    `RemoteStopTransaction` or `SetChargingProfile` (W, `TxProfile` or `TxDefaultProfile`; payloads checked
+    against the official schemas, now embedded too), `ChargerConnection.CallAsync` waits for the reply by
+    `uniqueId` (timeout 30 s; a closed socket fails it), and one `GatewayCommandResult` is published before
+    the ack (three failed publishes requeue). Options `Gateway:Commands`.
+  - The active transaction (`devices.activeSessionId`) is set by an accepted `StartTransaction` or a
+    `MeterValues` naming one, cleared by the matching `StopTransaction`, stored before the reply and kept
+    across a gateway restart.
+- **Command dispatch (worker, ADR-004):**
+  - `CommandMonitor` (every 2 s, `command-monitor` lease): confirms a sent command from a report received
+    after the send (an older matching one for `already-in-effect`); times out after 60 s (twice the report
+    interval for a polled device) and reconciles: confirm, resend with the same key (new outbox entry in the
+    same write) or dead-letter; announces a due, free, unclaimed command 5 s after it became sendable, then
+    every dispatch timeout (2 min), counting only those, and dead-letters after three ("dispatch kept
+    failing"); expires claims. A command waiting for a busy device is never announced. A route that throws
+    releases its claim, so the message reaches the dead-letter queue.
+  - API: `POST /v1/plans/{id}/confirm` (202 with the plan and its commands; 404, 409, 410),
+    `POST /v1/devices/{id}/commands` (202 with `Location`; body checked field by field; 404; 422
+    `capability-not-supported` or `unprocessable` for a removed device or a power above the maximum; the
+    command id is its idempotency key) and `GET /v1/commands/{id}` (history with `reason`). Both POSTs are
+    `.Idempotent()`; the request's `traceparent` is stored on the command and its outbox entry. No endpoint
+    answers or documents 501.
+  - `worker.dispatch` (`CommandRequested`) and `worker.command-results` (`GatewayCommandResult`) with delay and
+    dead-letter queues; `SendToQueueAsync` (default exchange, `mandatory`: an unroutable publish fails) and
+    `PublishSerializedAsync` for saved messages.
+  - `CommandsOptions` (section `Commands`, validated naming the key) and the `outbox-relay` and `command-monitor`
+    leases. `OutboxRelay`: due entries oldest first, marked published only after the broker confirms, the
+    command moved to `Published`, backing off from 1 s to 30 s while the broker is down.
+  - `CommandDispatcher`: acks without a send when the command is not ready (terminal, sent, not due, waiting
+    for a retry, its device busy or holding an earlier-due command), else claims, routes and applies the
+    outcome through Core (`CommandOutcomes`: accepted, rejected, retry no sooner than `Retry-After`, dead-letter
+    after the sixth attempt). Routes: `ProviderCommandRoute` (the owner's account, `ICommandSender`) and
+    `GatewayCommandRoute` (connection registry, the replica's queue; no connection or a gone queue is
+    transient). `CommandResultConsumer` applies gateway results and drops duplicates and late ones.
 - **Messaging (RabbitMQ, ADR-003):**
   - The topology is declared from code: topic exchange `cheaphours.events`; per consumer a quorum queue,
     three delay queues (5 s, 30 s, 2 min) and a dead-letter queue. A conflicting queue stops startup.
@@ -216,6 +260,18 @@ reliability.
   account per owner and provider), `locks`, `prices`, `priceDays`, `goals`, `goalClaims`, `plans` and
   `idempotencyKeys` (24-hour TTL); the owner-scoped device reader and the telemetry bucket reader; index
   creation; camelCase and enum-name conventions; `schemaVersion` on every document.
+  - `commands`: rebuilt through `Command.Restore` (a stored state that disagrees with the history throws);
+    every write filters on the version it read and increments it; a unique idempotency key; claims that
+    exactly one dispatcher wins; scans for the monitor, the per-device queue and a plan version.
+  - `outbox`: entries added only inside the transaction of the change they announce; the relay's due
+    listing (partial index on `published: false`); published entries expire after 7 days.
+  - Goal transactions with commands: confirming a draft (the running version superseded and its unsent
+    commands cancelled with the reason, a change draft's values applied to the goal and its claims, the new
+    commands stored with their outbox entries), a change draft above a running version, and re-planning a
+    confirmed plan. A plan that moved on, or a write that fails part-way, leaves nothing.
+  - `devices.statusReceivedAt` (receipt time of the latest reported status) and `activeSessionId`;
+    `proposedTargetSocPercent`/`proposedDepartureAt` on plan versions; the running (highest confirmed)
+    version; an owner's account at a provider.
 - **Greedy planner (`CheapHours.Planning`, pure, ADR-005):** the energy needed from the charge gap,
   battery and efficiency (0.90); the window of whole UTC slots from now to departure minus the safety
   margin (30 min), counted in UTC so daylight-saving nights hold 36 or 28 slots; every slot at the
@@ -225,6 +281,11 @@ reliability.
   `PlannerOptions` with range checks naming the key; `PlanProgress.ExpectedSoc` for the drift check.
   FsCheck checks the four planner properties over 1,000 cases each, with windows across both 2026
   daylight-saving changes, negative and missing prices.
+  - `PlanCommandSchedule`: each run of consecutive slots becomes a start at its first slot and a stop at
+    the end of its last, keyed by `PlannedCommandKey`. A re-plan of a version charging right now continues
+    without a gap: no start for a run that carries on, otherwise a stop at the end of the current slot.
+    FsCheck (1,000 cases each): every start has a later stop, keys never collide, nothing is due after the
+    window.
 - **Day-ahead price import (worker):**
   - `EnergyChartsClient` behind `IPriceSource` reads one Europe/Berlin day per request (92, 96 or 100
     slots; `BerlinTime` falls back to the Windows zone id under invariant globalization) through its own
@@ -249,14 +310,23 @@ reliability.
   (claims, goal, version 1) and changing one (claims, goal, new version, previous `Superseded`) are single
   MongoDB transactions. `GoalPlanningService` is the one planning path for the API and the worker: 404 for
   another owner's device, 422 checks (past, no whole slot, more than 48 h, wrong type, same device, no
-  charge, target below charge), 409 for a busy device or a confirmed plan; a re-plan that changes nothing
-  stores nothing; drafts expire after 10 minutes; re-plans on prices or drift keep a confirmed plan
-  confirmed with its confirmation time.
+  charge, target below charge), 409 for a busy device; a re-plan that changes nothing stores nothing;
+  drafts expire after 10 minutes.
+  - `ConfirmAsync`: 404, then 410 for an expired draft, then 409 when the current version is not a draft;
+    the runs become commands for the goal's charger (`PlanCommandSchedule`, keys per version and slot) and
+    are written with the confirmation, superseding the running version and cancelling its unsent commands.
+  - Changing a goal whose plan is confirmed stores a change draft (`proposedTargetSocPercent`,
+    `proposedDepartureAt`) and leaves the goal and the running version alone; confirming it applies the
+    values to the goal and its claims. An expired change draft changes nothing.
+  - A re-plan on prices or drift uses the running (highest confirmed) version as its base, from the goal's
+    stored values, and writes a new confirmed version that reschedules the commands: no start for a run
+    that carries on the charging under way (judged from all the plan's commands), otherwise a stop at the end
+    of the current slot; a change draft above it is superseded.
 - **Re-planning (worker):** the `worker.planner` queue (bound to `PricesPublished`, with delay and
   dead-letter queues) re-plans every open goal whose window reaches the published day; a repeated message
   adds nothing and a database outage pauses the consumer. `DriftCheckService` (every 5 minutes, `plan-drift`
-  lease) re-plans a confirmed plan from the vehicle's reported charge when it is 5 points or more off the
-  charge the plan expects at that time.
+  lease) re-plans the running confirmed version from the vehicle's reported charge when it is 5 points or
+  more off the charge the plan expects at that time.
 - **Planning API (api role):**
   - `GET /v1/prices` (zone must be `DE-LU`, the range widened to the 15-minute grid, at most 31 days,
     cursor paging) and `GET /v1/savings` (goals departing in the range whose latest confirmed version had
@@ -271,9 +341,15 @@ reliability.
     included), another body gets `409 idempotency-key-reused`, a repeat while the first runs gets `409
     conflict` (taken over after a minute), and responses of 500 and above are not kept.
   - The README walks through today's prices and a demo goal for the simulated car and wallbox.
-- **ADRs:** 001 (modular monolith), 002 (time-series telemetry), 003 (RabbitMQ), 005 (greedy
-  cheapest-slot planner), 008 (gateway command routing).
-- **Tests:** 1410 green and 31 skipped by design (contract rules that do not fit a provider): unit,
+- **ADRs:** 001 (modular monolith), 002 (time-series telemetry), 003 (RabbitMQ), 004 (own outbox and
+  inbox), 005 (greedy cheapest-slot planner), 006 (OCPP 1.6J smart-charging messages), 008 (gateway command
+  routing).
+- **Reliability catalogue:** `docs/reliability.md` maps every row of the System Design reliability table to
+  its tests by class and method; `ReliabilityCatalogueTests` fails when a named test no longer exists. Gate
+  fault tests (`tests/CheapHours.IntegrationTests/Faults`): a worker stopped between save and publish, the
+  broker stopped while three commands are accepted, a charger dropping mid-command and reconnecting
+  `Available`; each command reaches its device exactly once.
+- **Tests:** 1686 green and 31 skipped by design (contract rules that do not fit a provider): unit,
   property, architecture, API contract, provider contract, and integration tests against a
   real MongoDB and RabbitMQ in Testcontainers, with a real gateway on Kestrel, a real worker host and
   the API role on its own database (one model-based FsCheck test checks the bucket pipeline; four planner
@@ -282,11 +358,8 @@ reliability.
 
 ### Left to build
 
-- **Command dispatch and reliability:** transactional outbox and relay, dispatcher (OCPP via the gateway
-  queue), confirmation timeout → reconcile → resend wired to the lifecycle, plan-confirm and command
-  endpoints (marked `.Idempotent()`), cancelling a superseded plan version's commands, changing a goal
-  whose plan is confirmed, fault tests for every reliability-table row, OpenTelemetry
-  traces and metrics, ADR-004 and ADR-006.
+- **Observability:** OpenTelemetry traces through the messages (the `traceparent` already travels in every
+  envelope and is stored on commands), the six metrics, a local Aspire dashboard.
 - **Delivery:** small dashboard on the public API, GitHub Actions pipeline, Helm chart, k6 load test,
   README with architecture diagram and demo.
 - **CheapHours Assistant (separate repo):** MCP server and agent host over the public API only.
@@ -318,7 +391,7 @@ reliability.
 | D4 | 15-minute slots everywhere | Accepted: `PlanSlot` |
 | D5 | Per-slot Start/Stop/SetPowerLimit in core | Accepted: `CommandType`; per-slot plans recorded in [ADR-005](docs/adr/005-greedy-cheapest-slot-planner.md) |
 | D6 | `IWebhookVerifier` per provider | Accepted: interface built; first implementation `HeatPumpCloudProvider` (HMAC-SHA256 over timestamp and raw body) |
-| D7 | Command states `Pending, Published, Sent, Confirmed, Reconciling, Rejected, DeadLettered` | Confirmed by the user against the Notion diagram |
+| D7 | Command states `Pending, Published, Sent, Confirmed, Reconciling, Rejected, DeadLettered, Cancelled` | Accepted with 8 states (`Cancelled` added with the user); the Notion diagram still shows 7 (user to update) |
 | D8 | Rename "WattBridge" to CheapHours in Notion | Open (Notion edit, user) |
 | D9 | Map the plan onto the week-by-week roadmap | Needs the roadmap from the user |
 
@@ -377,6 +450,8 @@ dotnet run --project src/CheapHours.Host -- --role worker      # stores telemetr
 dotnet test --project tests/CheapHours.UnitTests --filter-class "*GreedyPlannerPropertyTests"   # the planner's four properties, 1,000 cases each
 dotnet test --project tests/CheapHours.UnitTests --filter-class "*GoldenPlanTests"              # the plan for the recorded 2026-11-02 prices
 dotnet test --project tests/CheapHours.ContractTests             # the shared provider contract suite (no Docker needed)
+dotnet test --project tests/CheapHours.IntegrationTests --filter-class "*CommandFaultTests"   # the command-dispatch gate: worker, broker and charger killed mid-command
+curl -s -X POST -H "X-Api-Key: <execute key>" -H "Idempotency-Key: $(uuidgen)" http://localhost:5080/v1/plans/<planId>/confirm   # confirm a draft; follow each command at /v1/commands/{id}
 dotnet run --project simulators/CheapHours.Simulators.CarCloud -- --Simulator:ClientSecret=<s> --Simulator:Accounts:0:RefreshToken=<t> --Admin:Enabled=true   # simulator without Docker
 dotnet run --project simulators/CheapHours.Simulators.HeatPumpCloud -- --Simulator:CallbackUrl=http://localhost:5081/webhooks/heatpumpcloud/acct_demo --Simulator:SigningSecret=<s> --Admin:Enabled=true   # heat-pump simulator without Docker
 curl -s -X POST http://localhost:5091/admin/heat-pumps/hp_1/redeliver   # resend the last event unchanged (adds no reading)
@@ -392,8 +467,8 @@ openspec status --change <name>                # artifact progress
 src/CheapHours.Core                  domain types; references nothing, no I/O
 src/CheapHours.Messaging.Contracts   message records + shared JSON options; references Core only
 src/CheapHours.Planning              greedy planner, planner options, plan progress (pure, Core only)
-src/CheapHours.Persistence           MongoDB stores: chargePoints, devices, connections, telemetry, inbox, apiKeys, providerAccounts, locks, prices, priceDays, goals, goalClaims, plans, idempotencyKeys; readers; index creation
-src/CheapHours.Messaging             RabbitMQ connection, topology, confirmed publisher, batching consumer (outbox later)
+src/CheapHours.Persistence           MongoDB stores: chargePoints, devices, connections, telemetry, inbox, apiKeys, providerAccounts, locks, prices, priceDays, goals, goalClaims, plans, idempotencyKeys, commands, outbox; readers; index creation
+src/CheapHours.Messaging             RabbitMQ connection, topology, confirmed publisher, batching consumer
 src/CheapHours.Providers.Kit         adapter interfaces, registration, resilience
 src/CheapHours.Providers.Kit.Testing shared provider contract suite, WireMock vendor fake, in-memory account store
 src/CheapHours.Providers.{Ocpp,CarCloud,HeatPumpCloud}
@@ -404,6 +479,7 @@ docker/ocpp-simulator/               pinned build of the OCPP 1.6 charge-point s
 docker-compose.yml, .env.example     local stack; .env is git-ignored
 docs/api/openapi.v1.json             committed public contract
 docs/adr/                            decision records
+docs/reliability.md                  reliability table → tests (checked by ReliabilityCatalogueTests)
 openspec/                            specs and changes (local only, git-ignored)
 ```
 

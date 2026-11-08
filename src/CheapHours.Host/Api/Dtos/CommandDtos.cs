@@ -38,4 +38,5 @@ internal sealed record CommandDto(
 /// <param name="State">The state entered.</param>
 /// <param name="At">When (UTC).</param>
 /// <param name="VendorRef">The vendor's reference, when the step involved the vendor.</param>
-internal sealed record CommandHistoryEntryDto(CommandState State, DateTimeOffset At, string? VendorRef);
+/// <param name="Reason">Why, when the command was rejected, dead-lettered, cancelled or retried.</param>
+internal sealed record CommandHistoryEntryDto(CommandState State, DateTimeOffset At, string? VendorRef, string? Reason);

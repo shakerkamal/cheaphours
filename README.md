@@ -280,10 +280,38 @@ your machine, the worker polls the car cloud, and the heat-pump cloud posts sign
 
     A goal set before tomorrow's prices are published charges in the slots that have a price; when the
     worker announces tomorrow's prices, it re-plans the goal into the cheaper night as a new version.
-    `GET /v1/savings?from=...&to=...` counts confirmed plans only, so it shows zeros until plans can be
+    `GET /v1/savings?from=...&to=...` counts confirmed plans only, so it shows zeros until a plan is
     confirmed.
 
-15. **Re-link the car-cloud account.** Revoking it (`curl -s -X POST
+15. **Confirm the plan and follow its commands.** Confirming the draft (key with the `execute` scope)
+    answers `202` with the confirmed plan and one start and one stop per run of slots, each `Pending` and
+    due at its slot. Follow a command at `/v1/commands/{id}`: the worker publishes it when it is due, sends
+    it to the wallbox through the gateway, and marks it `Confirmed` only when the wallbox reports the new
+    state. A command can also go straight to a device:
+
+    ```sh
+    curl -s -X POST http://localhost:5080/v1/plans/<plan id>/confirm -H "X-Api-Key: $k" -H "Idempotency-Key: demo-confirm-1"
+    curl -s -H "X-Api-Key: $k" http://localhost:5080/v1/commands/<command id>
+    curl -s -X POST http://localhost:5080/v1/devices/$wallbox/commands -H "X-Api-Key: $k" -H "Content-Type: application/json" \
+      -H "Idempotency-Key: demo-start-1" -d '{"type":"StartCharging"}'
+    ```
+
+    ```powershell
+    Invoke-RestMethod -Method Post http://localhost:5080/v1/plans/<plan id>/confirm -Headers @{ 'X-Api-Key' = $k; 'Idempotency-Key' = 'demo-confirm-1' }
+    Invoke-RestMethod http://localhost:5080/v1/commands/<command id> -Headers @{ 'X-Api-Key' = $k }
+    Invoke-RestMethod -Method Post "http://localhost:5080/v1/devices/$wallbox/commands" -Headers @{ 'X-Api-Key' = $k; 'Idempotency-Key' = 'demo-start-1' } -ContentType 'application/json' -Body '{"type":"StartCharging"}'
+    ```
+
+    The direct start becomes `Sent` once the wallbox accepts the remote start, and `Confirmed` a moment
+    later: on a remote start the simulator starts a transaction and reports `Charging` by itself (unlike
+    the admin script in step 9). Restarting the simulator mid-command (`docker compose restart
+    ocpp-simulator`) still ends with one session: the simulator comes back `Available` without its
+    transaction, and after 60 seconds without confirmation the worker reads that state and resends with
+    the same key; the gateway never starts a second session for a wallbox that is charging. The pinned simulator accepts `SetPowerLimit` without changing its power, so a power limit
+    below its simulated power is never confirmed and is dead-lettered after reconciling; plans never use
+    power limits. `docs/reliability.md` maps every failure case to the test that proves it.
+
+16. **Re-link the car-cloud account.** Revoking it (`curl -s -X POST
     http://localhost:5090/admin/accounts/acct_demo/revoke`) makes the next poll fail with `invalid_grant`:
     the worker logs that `carcloud` account `acct_demo` needs to be linked again and stops polling it. The
     simulator also forgets rotated tokens when it restarts, which looks the same to the worker. To link
