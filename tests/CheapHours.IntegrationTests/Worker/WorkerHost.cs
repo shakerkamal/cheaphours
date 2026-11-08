@@ -19,9 +19,20 @@ internal static class WorkerHost
         ["Worker:ReplicaId"] = replicaId,
     };
 
-    public static async Task<IHost> StartAsync(
+    public static Task<IHost> StartAsync(
         MongoFixture mongo,
         RabbitMqFixture rabbit,
+        string database,
+        string prefix,
+        IReadOnlyDictionary<string, string> settings,
+        CapturingLoggerProvider? logs = null,
+        Action<IServiceCollection>? configure = null) =>
+        StartAsync(mongo, rabbit.ConnectionString, database, prefix, settings, logs, configure);
+
+    /// <summary>Starts a worker against a broker of its own, for tests that stop and start the broker.</summary>
+    public static async Task<IHost> StartAsync(
+        MongoFixture mongo,
+        string rabbitConnectionString,
         string database,
         string prefix,
         IReadOnlyDictionary<string, string> settings,
@@ -32,7 +43,7 @@ internal static class WorkerHost
         [
             $"--ConnectionStrings:Mongo={mongo.ConnectionString}",
             $"--Mongo:Database={database}",
-            $"--ConnectionStrings:RabbitMq={rabbit.ConnectionString}",
+            $"--ConnectionStrings:RabbitMq={rabbitConnectionString}",
             $"--Messaging:QueuePrefix={prefix}",
 
             // No test reaches the real price API: the import is off unless a test turns it on (later values win).

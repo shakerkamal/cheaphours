@@ -1,3 +1,4 @@
+using CheapHours.Host.Commands;
 using CheapHours.Host.Devices;
 using CheapHours.Host.Goals;
 using CheapHours.Host.Polling;
@@ -71,6 +72,7 @@ internal static class WorkerRole
         services.AddGoalPlanning();
         services.AddSingleton<PricesPublishedHandler>();
         services.AddSingleton<DriftCheckService>();
+        services.AddCommandDispatch();
 
         services.AddHostedService<WorkerStartup>();
         services.AddHostedService<TelemetryConsumerService>();

@@ -10,6 +10,7 @@ using CheapHours.IntegrationTests.Worker;
 using CheapHours.Messaging;
 using CheapHours.Messaging.Contracts;
 using CheapHours.Persistence;
+using CheapHours.Persistence.Commands;
 using CheapHours.Persistence.Devices;
 using CheapHours.Persistence.Goals;
 using CheapHours.Persistence.Plans;
@@ -174,6 +175,7 @@ public sealed class PlannerConsumerTests(MongoFixture mongo, RabbitMqFixture rab
         new PlanStore(database),
         new PriceStore(database),
         new DeviceReader(database),
+        new CommandStore(database),
         Options.Create(new PlannerOptions()),
         Options.Create(new PricesOptions()),
         TimeProvider.System,

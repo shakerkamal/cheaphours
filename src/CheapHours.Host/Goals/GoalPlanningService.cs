@@ -1,8 +1,12 @@
+using System.Diagnostics;
+using CheapHours.Core.Commands;
 using CheapHours.Core.Devices;
 using CheapHours.Core.Goals;
 using CheapHours.Core.Ids;
 using CheapHours.Core.Prices;
+using CheapHours.Host.Commands;
 using CheapHours.Host.Prices;
+using CheapHours.Persistence.Commands;
 using CheapHours.Persistence.Devices;
 using CheapHours.Persistence.Goals;
 using CheapHours.Persistence.Plans;
@@ -24,6 +28,7 @@ internal sealed partial class GoalPlanningService(
     IPlanStore plans,
     IPriceStore prices,
     IDeviceReader devices,
+    ICommandStore commands,
     IOptions<PlannerOptions> plannerOptions,
     IOptions<PricesOptions> pricesOptions,
     TimeProvider time,
@@ -62,11 +67,57 @@ internal sealed partial class GoalPlanningService(
             now,
             now);
         var result = await PlanAsync(goal, inputs, inputs.SocPercent!.Value, now, cancellationToken).ConfigureAwait(false);
-        var first = Version(goal, result, inputs.SocPercent.Value, PlanReason.Created, version: 1, current: null, now);
+        var first = Version(goal, result, inputs.SocPercent.Value, PlanReason.Created, version: 1, confirmedBase: null, now);
 
         return await goals.CreateAsync(goal, first, now, cancellationToken).ConfigureAwait(false) == GoalWriteOutcome.Stored
             ? new GoalOutcome.Planned(goal, first)
             : new GoalOutcome.Conflict(DeviceBusyDetail);
+    }
+
+    /// <summary>
+    /// Confirms the current draft of one of <paramref name="ownerId"/>'s plans (charging-goals spec): its runs become
+    /// commands for the goal's charger, the running version is superseded and its unsent commands cancelled, and a
+    /// change draft's values are applied to the goal, all in one transaction.
+    /// </summary>
+    /// <param name="ownerId">The owner of the calling key (D3).</param>
+    /// <param name="planId">The plan.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <param name="traceparent">The trace context of the request; the current activity's when omitted.</param>
+    /// <returns>The confirmed plan and its commands, or why not.</returns>
+    public async Task<ConfirmOutcome> ConfirmAsync(OwnerId ownerId, PlanId planId, CancellationToken cancellationToken, string? traceparent = null)
+    {
+        var now = time.GetUtcNow();
+        if (await plans.GetCurrentAsync(ownerId, planId, cancellationToken).ConfigureAwait(false) is not { } current
+            || await goals.GetAsync(ownerId, current.Plan.GoalId, cancellationToken).ConfigureAwait(false) is not { } goal)
+        {
+            return new ConfirmOutcome.NotFound();
+        }
+
+        switch (current.Plan.StatusAsOf(now))
+        {
+            case PlanStatus.Expired:
+                return new ConfirmOutcome.Expired();
+            case not PlanStatus.Draft:
+                return new ConfirmOutcome.Conflict($"The plan's current version is {current.Plan.StatusAsOf(now)}; only a draft can be confirmed.");
+        }
+
+        var running = await plans.GetRunningAsync(goal.Goal.Id, cancellationToken).ConfigureAwait(false);
+        var changed = current.IsChangeDraft
+            ? goal with
+            {
+                Goal = new Goal(goal.Goal.Id, goal.Goal.OwnerId, goal.Goal.VehicleDeviceId, goal.Goal.ChargerDeviceId, current.ProposedTargetSocPercent ?? goal.Goal.TargetSocPercent, current.ProposedDepartureAt ?? goal.Goal.DepartureUtc),
+                UpdatedAt = now,
+            }
+            : null;
+        var batch = await CommandsForAsync(goal, current, running, now, cancellationToken, traceparent).ConfigureAwait(false);
+        if (await goals.ConfirmAsync(current, running, changed, batch, now, cancellationToken).ConfigureAwait(false) != GoalWriteOutcome.Stored)
+        {
+            return new ConfirmOutcome.Conflict("The plan changed while it was being confirmed; read it again and confirm the new draft.");
+        }
+
+        LogConfirmed(goal.Goal.Id.Value, current.Plan.Version, batch.Commands.Count);
+        var confirmed = await plans.GetCurrentAsync(ownerId, planId, cancellationToken).ConfigureAwait(false);
+        return new ConfirmOutcome.Confirmed(changed ?? goal, confirmed!, batch.Commands);
     }
 
     /// <summary>Changes an open goal's target or departure and re-plans it as a new draft.</summary>
@@ -92,11 +143,7 @@ internal sealed partial class GoalPlanningService(
             }
 
             var current = await plans.GetCurrentAsync(goalId, cancellationToken).ConfigureAwait(false);
-            if (current?.Plan.StatusAsOf(now) == PlanStatus.Confirmed)
-            {
-                return new GoalOutcome.Conflict("The goal's plan is confirmed; it cannot be changed until its commands can be rescheduled.");
-            }
-
+            var running = await plans.GetRunningAsync(goalId, cancellationToken).ConfigureAwait(false);
             var goal = stored.Goal;
             var target = targetSocPercent ?? goal.TargetSocPercent;
             var departure = departureUtc ?? goal.DepartureUtc;
@@ -109,6 +156,31 @@ internal sealed partial class GoalPlanningService(
             if (resolved.Problem is { } problem)
             {
                 return problem;
+            }
+
+            if (running is not null)
+            {
+                // The confirmed version keeps charging; the change waits in a draft until it is confirmed.
+                var proposed = stored with
+                {
+                    Goal = new Goal(goal.Id, goal.OwnerId, goal.VehicleDeviceId, goal.ChargerDeviceId, target, departure),
+                    UpdatedAt = now,
+                };
+                var proposedResult = await PlanAsync(proposed, resolved.Devices!, resolved.Devices!.SocPercent!.Value, now, cancellationToken).ConfigureAwait(false);
+                var draft = Version(proposed, proposedResult, resolved.Devices.SocPercent.Value, PlanReason.GoalChanged, (current?.Plan.Version ?? 0) + 1, confirmedBase: null, now)
+                    with { ProposedTargetSocPercent = target, ProposedDepartureAt = departure };
+                if (await goals.AddChangeDraftAsync(draft, cancellationToken).ConfigureAwait(false) == GoalWriteOutcome.Stored)
+                {
+                    LogReplanned(goal.Id.Value, draft.Plan.Version, PlanReason.GoalChanged);
+                    return new GoalOutcome.Planned(stored, draft);
+                }
+
+                if (attempt > 0)
+                {
+                    return new GoalOutcome.Conflict("The goal was re-planned at the same moment; repeat the change.");
+                }
+
+                continue;
             }
 
             if (target == goal.TargetSocPercent && departure == goal.DepartureUtc)
@@ -126,7 +198,7 @@ internal sealed partial class GoalPlanningService(
             };
             var inputs = resolved.Devices!;
             var result = await PlanAsync(changed, inputs, inputs.SocPercent!.Value, now, cancellationToken).ConfigureAwait(false);
-            var next = Version(changed, result, inputs.SocPercent.Value, PlanReason.GoalChanged, (current?.Plan.Version ?? 0) + 1, current, now);
+            var next = Version(changed, result, inputs.SocPercent.Value, PlanReason.GoalChanged, (current?.Plan.Version ?? 0) + 1, confirmedBase: null, now);
             if (await goals.ChangeAsync(changed, next, cancellationToken).ConfigureAwait(false) == GoalWriteOutcome.Stored)
             {
                 LogReplanned(goal.Id.Value, next.Plan.Version, PlanReason.GoalChanged);
@@ -165,6 +237,17 @@ internal sealed partial class GoalPlanningService(
                 return Skip(goal, "the goal has no plan");
             }
 
+            // A running confirmed version is the base, whatever change draft waits above it.
+            if (await plans.GetRunningAsync(goal.Goal.Id, cancellationToken).ConfigureAwait(false) is { } running)
+            {
+                if (await ReplanRunningAsync(goal, current, running, reason, reportedSocPercent, now, cancellationToken).ConfigureAwait(false) is { } done)
+                {
+                    return done;
+                }
+
+                continue;
+            }
+
             var status = current.Plan.StatusAsOf(now);
             var remakeExpired = reason == PlanReason.GoalChanged && status == PlanStatus.Expired;
             if (status == PlanStatus.Expired && !remakeExpired)
@@ -194,7 +277,7 @@ internal sealed partial class GoalPlanningService(
                 return new ReplanOutcome.Unchanged();
             }
 
-            var next = Version(goal, result, soc, reason, current.Plan.Version + 1, current, now);
+            var next = Version(goal, result, soc, reason, current.Plan.Version + 1, confirmedBase: null, now);
             if (await plans.AddVersionAsync(next, cancellationToken).ConfigureAwait(false))
             {
                 LogReplanned(goal.Goal.Id.Value, next.Plan.Version, reason);
@@ -203,6 +286,45 @@ internal sealed partial class GoalPlanningService(
         }
 
         return new ReplanOutcome.Unchanged();
+    }
+
+    // Re-plans a running confirmed version into a new confirmed version above every version, rescheduling its
+    // commands. Returns null when another writer moved the plan on, so the caller reads again.
+    private async Task<ReplanOutcome?> ReplanRunningAsync(StoredGoal goal, StoredPlan current, StoredPlan running, PlanReason reason, decimal? reportedSocPercent, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        var resolved = await ResolveAsync(goal.Goal.OwnerId, goal.Goal.VehicleDeviceId, goal.Goal.ChargerDeviceId, targetSocPercent: null, cancellationToken).ConfigureAwait(false);
+        if (resolved.Devices is not { } inputs)
+        {
+            return Skip(goal, "the vehicle or charger cannot be planned with");
+        }
+
+        if ((reportedSocPercent ?? inputs.SocPercent) is not { } soc)
+        {
+            return Skip(goal, "the vehicle has not reported a charge");
+        }
+
+        if (GreedyPlanner.Window(now, goal.Goal.DepartureUtc, _planner.SafetyMargin).Count == 0)
+        {
+            return Skip(goal, "no whole slot is left before the safety margin");
+        }
+
+        // Planned against the goal's stored values, not a change draft's proposals. With no draft above it, an
+        // unchanged plan stores nothing; a draft above it is replaced either way.
+        var result = await PlanAsync(goal, inputs, soc, now, cancellationToken).ConfigureAwait(false);
+        if (current.Plan.Version == running.Plan.Version && SamePlan(result, running.Plan))
+        {
+            return new ReplanOutcome.Unchanged();
+        }
+
+        var next = Version(goal, result, soc, reason, current.Plan.Version + 1, confirmedBase: running, now);
+        var batch = await CommandsForAsync(goal, next, running, now, cancellationToken).ConfigureAwait(false);
+        if (await goals.ReplanConfirmedAsync(next, running, batch, now, cancellationToken).ConfigureAwait(false) != GoalWriteOutcome.Stored)
+        {
+            return null;
+        }
+
+        LogReplanned(goal.Goal.Id.Value, next.Plan.Version, reason);
+        return new ReplanOutcome.Added(next);
     }
 
     private static bool SamePlan(PlanningResult result, Plan plan) =>
@@ -292,12 +414,11 @@ internal sealed partial class GoalPlanningService(
             _planner.ChargingEfficiency));
     }
 
-    // Created and GoalChanged give a draft; PricesPublished and ChargeDrift keep the current status, so a
-    // confirmed plan stays confirmed with its confirmation time.
-    private StoredPlan Version(StoredGoal goal, PlanningResult result, decimal socPercent, PlanReason reason, int version, StoredPlan? current, DateTimeOffset now)
+    // A version made from a running confirmed one stays confirmed with its confirmation time; every other version
+    // is a draft that expires.
+    private StoredPlan Version(StoredGoal goal, PlanningResult result, decimal socPercent, PlanReason reason, int version, StoredPlan? confirmedBase, DateTimeOffset now)
     {
-        var keepConfirmed = reason is PlanReason.PricesPublished or PlanReason.ChargeDrift
-            && current?.Plan.Status == PlanStatus.Confirmed;
+        var keepConfirmed = confirmedBase is not null;
         var status = keepConfirmed ? PlanStatus.Confirmed : PlanStatus.Draft;
         var plan = new Plan(
             goal.PlanId,
@@ -312,7 +433,42 @@ internal sealed partial class GoalPlanningService(
             result.PricesComplete,
             now,
             status == PlanStatus.Draft ? now + _planner.DraftExpiry : null);
-        return new StoredPlan(plan, reason, socPercent, goal.Goal.TargetSocPercent, result.EnergyNeededWh, keepConfirmed ? current!.ConfirmedAt : null);
+        return new StoredPlan(plan, reason, socPercent, goal.Goal.TargetSocPercent, result.EnergyNeededWh, confirmedBase?.ConfirmedAt);
+    }
+
+    // The commands a confirmed version asks for, for the goal's charger (D2), with one outbox entry each; they carry
+    // the trace context of the request or message that confirmed or re-planned the plan.
+    private async Task<CommandBatch> CommandsForAsync(StoredGoal goal, StoredPlan version, StoredPlan? previous, DateTimeOffset now, CancellationToken cancellationToken, string? traceparent = null)
+    {
+        var charging = previous is not null && await ChargerChargingAsync(previous.Plan.Id, now, cancellationToken).ConfigureAwait(false);
+        traceparent ??= Activity.Current?.Id;
+        var created = PlanCommandSchedule.For(version.Plan, previous?.Plan, charging, now)
+            .Select(s => new StoredCommand(
+                Command.Create(new DeviceCommand(CommandId.New(time), goal.Goal.ChargerDeviceId, s.Type, s.IdempotencyKey), now, s.DueAt),
+                goal.Goal.OwnerId,
+                traceparent,
+                version.Plan.Id,
+                version.Plan.Version))
+            .ToArray();
+        return new CommandBatch(created, [.. created.Select(c => CommandOutbox.Announce(c, now))]);
+    }
+
+    // Whether the plan's charging is under way now: its latest due start was handed to the charger and no stop after
+    // it was confirmed. All versions count, because a re-plan that continued a run made no start of its own.
+    private async Task<bool> ChargerChargingAsync(PlanId planId, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        var charging = false;
+        foreach (var command in (await commands.ListForPlanAsync(planId, cancellationToken).ConfigureAwait(false)).Where(c => c.Command.DueAt <= now))
+        {
+            charging = (command.Command.Request.Type, command.Command.State) switch
+            {
+                (CommandType.StartCharging, CommandState.Sent or CommandState.Confirmed) => true,
+                (CommandType.StopCharging, CommandState.Confirmed) => false,
+                _ => charging,
+            };
+        }
+
+        return charging;
     }
 
     private ReplanOutcome.Skipped Skip(StoredGoal goal, string reason)
@@ -320,6 +476,9 @@ internal sealed partial class GoalPlanningService(
         LogSkipped(goal.Goal.Id.Value, reason);
         return new ReplanOutcome.Skipped(reason);
     }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Goal {GoalId}: plan version {Version} confirmed with {Commands} command(s)")]
+    private partial void LogConfirmed(string goalId, int version, int commands);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Goal {GoalId} re-planned: version {Version} ({Reason})")]
     private partial void LogReplanned(string goalId, int version, PlanReason reason);

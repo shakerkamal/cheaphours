@@ -1,3 +1,4 @@
+using CheapHours.Core.Commands;
 using CheapHours.Core.Devices;
 using CheapHours.Core.Goals;
 using CheapHours.Core.Ids;
@@ -6,6 +7,7 @@ using CheapHours.Host.Goals;
 using CheapHours.Host.Prices;
 using CheapHours.IntegrationTests.Infrastructure;
 using CheapHours.Persistence;
+using CheapHours.Persistence.Commands;
 using CheapHours.Persistence.Devices;
 using CheapHours.Persistence.Goals;
 using CheapHours.Persistence.Plans;
@@ -55,6 +57,7 @@ public sealed class GoalPlanningServiceTests(MongoFixture mongo) : IAsyncLifetim
             new PlanStore(_database),
             new PriceStore(_database),
             new DeviceReader(_database),
+            new CommandStore(_database),
             Options.Create(new PlannerOptions()),
             Options.Create(new PricesOptions { Zone = _zone }),
             _time,
@@ -159,17 +162,122 @@ public sealed class GoalPlanningServiceTests(MongoFixture mongo) : IAsyncLifetim
         Assert.Equal(confirmedAt, (await Plans.GetCurrentAsync(planned.Goal.Goal.Id, Ct))!.ConfirmedAt);
     }
 
+    // charging-goals: "Confirmed plan" (changing) and "Change draft above a confirmed version".
     [Fact]
-    public async Task Changing_a_confirmed_goal_is_a_conflict_and_stores_nothing()
+    public async Task Changing_a_confirmed_goal_adds_a_change_draft_and_leaves_the_goal_and_the_running_version()
     {
         var planned = (GoalOutcome.Planned)await CreateAsync();
-        await ConfirmAsync(planned.Plan, Evening.AddMinutes(1));
+        await ConfirmViaServiceAsync(planned);
 
-        var outcome = await _service.ChangeAsync(Owner, planned.Goal.Goal.Id, 90, null, Ct);
+        var changed = Assert.IsType<GoalOutcome.Planned>(await _service.ChangeAsync(Owner, planned.Goal.Goal.Id, 90, null, Ct));
 
-        Assert.IsType<GoalOutcome.Conflict>(outcome);
-        Assert.Single(await Plans.ListVersionsAsync(planned.Goal.Goal.Id, Ct));
+        Assert.Equal(80, changed.Goal.Goal.TargetSocPercent);
+        Assert.Equal((2, PlanStatus.Draft, PlanReason.GoalChanged), (changed.Plan.Plan.Version, changed.Plan.Plan.Status, changed.Plan.Reason));
+        Assert.Equal((90, (DateTimeOffset?)Departure), (changed.Plan.ProposedTargetSocPercent!.Value, changed.Plan.ProposedDepartureAt));
+        Assert.Equal(1, (await Plans.GetRunningAsync(planned.Goal.Goal.Id, Ct))!.Plan.Version);
         Assert.Equal(80, (await new GoalStore(_database).GetAsync(Owner, planned.Goal.Goal.Id, Ct))!.Goal.TargetSocPercent);
+        Assert.All(await new CommandStore(_database).ListForPlanVersionAsync(planned.Plan.Plan.Id, 1, Ct), c => Assert.Equal(CommandState.Pending, c.Command.State));
+    }
+
+    // charging-goals: "Change draft expires".
+    [Fact]
+    public async Task Expired_change_draft_changes_nothing_and_the_confirmed_version_keeps_running()
+    {
+        var planned = (GoalOutcome.Planned)await CreateAsync();
+        await ConfirmViaServiceAsync(planned);
+        await _service.ChangeAsync(Owner, planned.Goal.Goal.Id, 90, null, Ct);
+
+        _time.Advance(TimeSpan.FromMinutes(11));
+
+        var current = await Plans.GetCurrentAsync(planned.Goal.Goal.Id, Ct);
+        Assert.Equal(PlanStatus.Expired, current!.Plan.StatusAsOf(_time.GetUtcNow()));
+        Assert.Equal((1, PlanStatus.Confirmed), ((await Plans.GetRunningAsync(planned.Goal.Goal.Id, Ct))!.Plan.Version, (await Plans.GetRunningAsync(planned.Goal.Goal.Id, Ct))!.Plan.Status));
+        Assert.Equal(80, (await new GoalStore(_database).GetAsync(Owner, planned.Goal.Goal.Id, Ct))!.Goal.TargetSocPercent);
+        Assert.IsType<ConfirmOutcome.Expired>(await _service.ConfirmAsync(Owner, planned.Plan.Plan.Id, Ct));
+    }
+
+    // charging-goals: "Pending change draft".
+    [Fact]
+    public async Task New_prices_re_plan_the_running_version_from_the_stored_values_and_supersede_the_change_draft()
+    {
+        var planned = (GoalOutcome.Planned)await CreateAsync();
+        await ConfirmViaServiceAsync(planned);
+        await _service.ChangeAsync(Owner, planned.Goal.Goal.Id, 90, null, Ct);
+        _time.Advance(TimeSpan.FromMinutes(5));
+        await SeedPricesAsync(Midnight, Departure, 80m);
+
+        var added = Assert.IsType<ReplanOutcome.Added>(await _service.ReplanAsync(planned.Goal, PlanReason.PricesPublished, null, Ct));
+
+        Assert.Equal((3, PlanStatus.Confirmed, 80), (added.Version.Plan.Version, added.Version.Plan.Status, added.Version.TargetSocPercent));
+        Assert.Equal([PlanStatus.Superseded, PlanStatus.Superseded, PlanStatus.Confirmed], (await Plans.ListVersionsAsync(planned.Goal.Goal.Id, Ct)).Select(v => v.Plan.Status));
+        var commands = new CommandStore(_database);
+        Assert.All(await commands.ListForPlanVersionAsync(planned.Plan.Plan.Id, 1, Ct), c => Assert.Equal(CommandState.Cancelled, c.Command.State));
+        Assert.NotEmpty(await commands.ListForPlanVersionAsync(planned.Plan.Plan.Id, 3, Ct));
+    }
+
+    // charging-goals: "Charging continues".
+    [Fact]
+    public async Task Re_plan_while_charging_continues_the_run_without_a_new_start()
+    {
+        await SetChargeAsync(_vehicle, 75.0);
+        var planned = (GoalOutcome.Planned)await CreateAsync();
+        Assert.Equal([Evening, Evening.AddMinutes(15)], planned.Plan.Plan.Slots.Select(s => s.StartUtc));
+        var v1 = await ConfirmViaServiceAsync(planned);
+        _time.Advance(TimeSpan.FromMinutes(5));
+        await MarkSentAsync(v1.Single(c => c.Command.Request.Type == CommandType.StartCharging));
+
+        var added = Assert.IsType<ReplanOutcome.Added>(await _service.ReplanAsync(planned.Goal, PlanReason.PricesPublished, null, Ct));
+
+        Assert.Equal([Evening.AddMinutes(15), Evening.AddMinutes(30)], added.Version.Plan.Slots.Select(s => s.StartUtc));
+        var v2 = await new CommandStore(_database).ListForPlanVersionAsync(planned.Plan.Plan.Id, 2, Ct);
+        var stop = Assert.Single(v2);
+        Assert.Equal((CommandType.StopCharging, Evening.AddMinutes(45)), (stop.Command.Request.Type, stop.Command.DueAt));
+        var old = await new CommandStore(_database).ListForPlanVersionAsync(planned.Plan.Plan.Id, 1, Ct);
+        Assert.Equal(CommandState.Sent, old.Single(c => c.Command.Request.Type == CommandType.StartCharging).Command.State);
+        Assert.Equal(CommandState.Cancelled, old.Single(c => c.Command.Request.Type == CommandType.StopCharging).Command.State);
+    }
+
+    // charging-goals: "Charging moves later".
+    [Fact]
+    public async Task Re_plan_while_charging_into_later_slots_stops_at_the_end_of_the_current_slot()
+    {
+        await SetChargeAsync(_vehicle, 75.0);
+        var planned = (GoalOutcome.Planned)await CreateAsync();
+        var v1 = await ConfirmViaServiceAsync(planned);
+        _time.Advance(TimeSpan.FromMinutes(5));
+        await MarkSentAsync(v1.Single(c => c.Command.Request.Type == CommandType.StartCharging));
+
+        // Tonight's prices are now dear except 22:00–22:30.
+        await _database.GetCollection<BsonDocument>(MongoIndexes.Prices).DeleteManyAsync(new BsonDocument("zone", _zone), Ct);
+        await SeedPricesAsync(Evening, Midnight, 900m);
+        await _database.GetCollection<BsonDocument>(MongoIndexes.Prices).DeleteManyAsync(
+            new BsonDocument { { "zone", _zone }, { "start", new BsonDocument("$gte", Evening.AddHours(4).UtcDateTime) } },
+            Ct);
+        await SeedPricesAsync(Evening.AddHours(4), Evening.AddHours(4).AddMinutes(30), 10m);
+
+        var added = Assert.IsType<ReplanOutcome.Added>(await _service.ReplanAsync(planned.Goal, PlanReason.PricesPublished, null, Ct));
+
+        Assert.Equal([Evening.AddHours(4), Evening.AddHours(4).AddMinutes(15)], added.Version.Plan.Slots.Select(s => s.StartUtc));
+        var v2 = await new CommandStore(_database).ListForPlanVersionAsync(planned.Plan.Plan.Id, 2, Ct);
+        Assert.Equal(
+            [(CommandType.StopCharging, Evening.AddMinutes(15)), (CommandType.StartCharging, Evening.AddHours(4)), (CommandType.StopCharging, Evening.AddHours(4).AddMinutes(30))],
+            v2.Select(c => (c.Command.Request.Type, c.Command.DueAt)));
+    }
+
+    private async Task<IReadOnlyList<StoredCommand>> ConfirmViaServiceAsync(GoalOutcome.Planned planned)
+    {
+        var confirmed = Assert.IsType<ConfirmOutcome.Confirmed>(await _service.ConfirmAsync(Owner, planned.Plan.Plan.Id, Ct));
+        return confirmed.Commands;
+    }
+
+    // The start was handed to the charger: Published, then Accepted.
+    private async Task MarkSentAsync(StoredCommand command)
+    {
+        var store = new CommandStore(_database);
+        var loaded = (await store.FindAsync(command.Id, Ct))!;
+        loaded.Command.Publish(_time.GetUtcNow());
+        loaded.Command.Accept(_time.GetUtcNow(), "ocpp-1");
+        Assert.NotNull(await store.SaveAsync(loaded, Ct));
     }
 
     [Fact]

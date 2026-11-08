@@ -68,7 +68,8 @@ internal sealed partial class DriftCheckService(
     {
         foreach (var goal in await goals.ListOpenAsync(time.GetUtcNow(), cancellationToken).ConfigureAwait(false))
         {
-            if (await plans.GetCurrentAsync(goal.Goal.Id, cancellationToken).ConfigureAwait(false) is not { Plan.Status: PlanStatus.Confirmed } current)
+            // The running version charges, even while a change draft waits above it.
+            if (await plans.GetRunningAsync(goal.Goal.Id, cancellationToken).ConfigureAwait(false) is not { } current)
             {
                 continue;
             }
