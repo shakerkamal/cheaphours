@@ -1,5 +1,6 @@
 using CheapHours.Core.Commands;
 using CheapHours.Host.Goals;
+using CheapHours.Host.Observability;
 using CheapHours.Host.Worker;
 using CheapHours.Persistence.Commands;
 using CheapHours.Persistence.Devices;
@@ -28,6 +29,7 @@ internal sealed partial class CommandMonitor(
     [FromKeyedServices(LeaseNames.CommandMonitor)] ILease lease,
     ICommandStore commands,
     IDeviceCommandStateStore devices,
+    CommandMetrics metrics,
     IEnumerable<IPollingProvider> pollingProviders,
     WorkerState state,
     IOptions<CommandsOptions> options,
@@ -95,14 +97,17 @@ internal sealed partial class CommandMonitor(
         {
             var now = time.GetUtcNow();
             var device = await devices.GetAsync(stored.Command.Request.DeviceId, cancellationToken).ConfigureAwait(false);
+            var providerId = device?.Device.ProviderId;
             var observation = Observe(device, now);
             var command = stored.Command;
             var at = CommandOutcomes.NotBefore(command, now);
+            using var scope = LogScopes.ForCommand(logger, stored.Id, command.Request.DeviceId, providerId);
 
             if (CommandConfirmation.IsConfirmed(command, observation, stored.AlreadyInEffect))
             {
+                using var confirm = CommandTracing.Start("command confirm", stored, providerId);
                 command.Confirm(at);
-                await SaveAsync(stored, cancellationToken).ConfigureAwait(false);
+                metrics.Confirmed(await SaveAsync(stored, cancellationToken).ConfigureAwait(false), providerId);
                 continue;
             }
 
@@ -111,23 +116,39 @@ internal sealed partial class CommandMonitor(
                 continue;
             }
 
+            using var reconcile = CommandTracing.Start("command reconcile", stored, providerId);
             command.TimeOut(at);
             switch (ReconcileDecider.Decide(command, observation, _retry))
             {
                 case ReconcileDecision.Confirm:
+                {
+                    reconcile.Tag(CommandTracing.OutcomeTag, "confirm");
+                    using var confirm = CommandTracing.Start("command confirm", stored, providerId);
                     command.Confirm(at);
-                    await SaveAsync(stored, cancellationToken).ConfigureAwait(false);
+                    metrics.Confirmed(await SaveAsync(stored, cancellationToken).ConfigureAwait(false), providerId);
                     break;
+                }
+
                 case ReconcileDecision.Resend:
+                {
+                    reconcile.Tag(CommandTracing.OutcomeTag, "resend");
+                    using var resend = CommandTracing.Start("command resend", stored, providerId);
                     command.Resend(at);
                     var resent = stored with { Announcements = 0, LastAnnouncedAt = now, AlreadyInEffect = false };
                     await commands.SaveWithOutboxAsync(resent, CommandOutbox.Announce(resent, now, availableAt: now), cancellationToken).ConfigureAwait(false);
                     LogResent(stored.Id.Value, command.Attempts);
                     break;
+                }
+
                 case ReconcileDecision.Fail fail:
+                {
+                    reconcile.Tag(CommandTracing.OutcomeTag, "dead-letter");
+                    using var deadLetter = CommandTracing.Start("command dead-letter", stored, providerId);
+                    deadLetter.Tag(CommandTracing.ReasonTag, fail.Reason).Fail("dead-lettered");
                     command.GiveUp(at, fail.Reason);
-                    await SaveAsync(stored, cancellationToken).ConfigureAwait(false);
+                    metrics.DeadLettered(await SaveAsync(stored, cancellationToken).ConfigureAwait(false), providerId, CommandMetrics.NotConfirmed);
                     break;
+                }
             }
         }
     }
@@ -166,8 +187,12 @@ internal sealed partial class CommandMonitor(
 
             if (first.Announcements >= _options.MaxReannouncements)
             {
+                var providerId = await ProviderOfAsync(first, cancellationToken).ConfigureAwait(false);
+                using var scope = LogScopes.ForCommand(logger, first.Id, command.Request.DeviceId, providerId);
+                using var deadLetter = CommandTracing.Start("command dead-letter", first, providerId);
+                deadLetter.Tag(CommandTracing.ReasonTag, DispatchKeptFailing).Fail("dead-lettered");
                 command.GiveUp(CommandOutcomes.NotBefore(command, now), DispatchKeptFailing);
-                await SaveAsync(first, cancellationToken).ConfigureAwait(false);
+                metrics.DeadLettered(await SaveAsync(first, cancellationToken).ConfigureAwait(false), providerId, CommandMetrics.DispatchKeptFailing);
                 LogDeadLettered(first.Id.Value, first.Announcements);
                 continue;
             }
@@ -178,18 +203,29 @@ internal sealed partial class CommandMonitor(
 
     private async Task AnnounceAsync(StoredCommand command, DateTimeOffset now, CancellationToken cancellationToken)
     {
+        var providerId = await ProviderOfAsync(command, cancellationToken).ConfigureAwait(false);
+        using var scope = LogScopes.ForCommand(logger, command.Id, command.Command.Request.DeviceId, providerId);
+        using var span = CommandTracing.Start("command reannounce", command, providerId);
         if (await commands.SaveWithOutboxAsync(command, CommandOutbox.Announce(command, now, availableAt: now), cancellationToken).ConfigureAwait(false) is not null)
         {
             LogAnnounced(command.Id.Value, command.Announcements);
         }
     }
 
-    private async Task SaveAsync(StoredCommand command, CancellationToken cancellationToken)
+    // The command's provider, for its span, log scope and metrics; only loaded when the monitor acts on it.
+    private async Task<string?> ProviderOfAsync(StoredCommand command, CancellationToken cancellationToken) =>
+        (await devices.GetAsync(command.Command.Request.DeviceId, cancellationToken).ConfigureAwait(false))?.Device.ProviderId;
+
+    // Returns the command as saved, or null when another writer won.
+    private async Task<StoredCommand?> SaveAsync(StoredCommand command, CancellationToken cancellationToken)
     {
         if (await commands.SaveAsync(command, cancellationToken).ConfigureAwait(false) is { } saved)
         {
             LogMoved(saved.Id.Value, saved.Command.State);
+            return saved;
         }
+
+        return null;
     }
 
     // A polled device can only show a command's effect at its next poll, so it gets two report intervals.

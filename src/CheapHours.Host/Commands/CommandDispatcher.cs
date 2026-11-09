@@ -1,5 +1,6 @@
 using CheapHours.Core.Commands;
 using CheapHours.Core.Ids;
+using CheapHours.Host.Observability;
 using CheapHours.Host.Worker;
 using CheapHours.Messaging;
 using CheapHours.Messaging.Contracts;
@@ -22,6 +23,8 @@ internal sealed partial class CommandDispatcher(
     IDeviceCommandStateStore devices,
     IEnumerable<ICommandRoute> routes,
     CommandOutcomes outcomes,
+    CommandMetrics metrics,
+    MessagingTopology topology,
     IOptions<CommandsOptions> options,
     IConfiguration configuration,
     TimeProvider time,
@@ -39,7 +42,17 @@ internal sealed partial class CommandDispatcher(
         {
             foreach (var delivered in batch)
             {
-                await DispatchAsync(delivered.Message.CommandId, cancellationToken).ConfigureAwait(false);
+                // Each message is handled under its own trace context: the request that created the command.
+                using var process = MessagingTracing.StartProcess(topology.Dispatch.Main, delivered.Message);
+                try
+                {
+                    await DispatchAsync(delivered.Message.CommandId, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    process.Fail(ex);
+                    throw;
+                }
             }
         }
         catch (Exception ex) when (CommandStoreOutage.Is(ex))
@@ -66,26 +79,55 @@ internal sealed partial class CommandDispatcher(
             return;
         }
 
+        var device = await devices.GetAsync(claimed.Command.Request.DeviceId, cancellationToken).ConfigureAwait(false);
+        var providerId = device?.Device.ProviderId;
+        using var span = CommandTracing.Start($"dispatch {claimed.Command.Request.Type}", claimed, providerId);
+        using var scope = LogScopes.ForCommand(logger, claimed.Id, claimed.Command.Request.DeviceId, providerId);
+
         RouteOutcome outcome;
         try
         {
-            outcome = await RouteAsync(claimed, cancellationToken).ConfigureAwait(false);
+            outcome = await RouteAsync(claimed, device, cancellationToken).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // A broken route: free the command so every redelivery fails the same way and the message ends in the
             // dead-letter queue; the command monitor dead-letters the command after its re-announcements.
+            span.Fail(ex);
             await commands.ReleaseClaimAsync(claimed.Id, _holder, CancellationToken.None).ConfigureAwait(false);
             throw;
         }
 
         if (outcome is RouteOutcome.Completed completed)
         {
-            await ApplyAsync(claimed, completed.Result, cancellationToken).ConfigureAwait(false);
+            Record(span, completed.Result);
+            if (await ApplyAsync(claimed, completed.Result, cancellationToken).ConfigureAwait(false) is { Command.State: CommandState.DeadLettered } dead)
+            {
+                span.Fail("dead-lettered");
+                metrics.DeadLettered(dead, providerId, CommandMetrics.AttemptsExhausted);
+            }
         }
         else
         {
+            span.Tag(CommandTracing.OutcomeTag, "forwarded");
             LogForwarded(claimed.Id.Value);
+        }
+    }
+
+    // The send's classified outcome on the dispatch span; a refusal marks it failed with its reason code.
+    private static void Record(SpanScope span, SendResult result)
+    {
+        switch (result)
+        {
+            case SendResult.Accepted:
+                span.Tag(CommandTracing.OutcomeTag, "accepted");
+                break;
+            case SendResult.Rejected rejected:
+                span.Tag(CommandTracing.OutcomeTag, "rejected").Tag(CommandTracing.ReasonTag, rejected.Reason).Fail("rejected");
+                break;
+            case SendResult.Transient:
+                span.Tag(CommandTracing.OutcomeTag, "transient");
+                break;
         }
     }
 
@@ -144,9 +186,9 @@ internal sealed partial class CommandDispatcher(
         && (other.Command.DueAt < command.Command.DueAt
             || (other.Command.DueAt == command.Command.DueAt && string.CompareOrdinal(other.Id.Value, command.Id.Value) < 0));
 
-    private async Task<RouteOutcome> RouteAsync(StoredCommand command, CancellationToken cancellationToken)
+    private async Task<RouteOutcome> RouteAsync(StoredCommand command, StoredDevice? device, CancellationToken cancellationToken)
     {
-        if (await devices.GetAsync(command.Command.Request.DeviceId, cancellationToken).ConfigureAwait(false) is not { } device)
+        if (device is null)
         {
             return new RouteOutcome.Completed(new SendResult.Rejected("unknown-device"));
         }
@@ -158,7 +200,8 @@ internal sealed partial class CommandDispatcher(
 
     // Saves the outcome against the claimed version; if something else wrote meanwhile, applies it to a fresh copy
     // while the command is still waiting for this send's outcome.
-    private async Task ApplyAsync(StoredCommand claimed, SendResult result, CancellationToken cancellationToken)
+    // Returns the command as saved, or null when nothing was saved.
+    private async Task<StoredCommand?> ApplyAsync(StoredCommand claimed, SendResult result, CancellationToken cancellationToken)
     {
         var current = claimed;
         for (var attempt = 0; attempt < 3; attempt++)
@@ -167,16 +210,18 @@ internal sealed partial class CommandDispatcher(
             if (await commands.SaveAsync(applied, cancellationToken).ConfigureAwait(false) is { } saved)
             {
                 LogApplied(saved.Id.Value, saved.Command.State, saved.Command.Attempts);
-                return;
+                return saved;
             }
 
             if (await commands.FindAsync(claimed.Id, cancellationToken).ConfigureAwait(false) is not { Command.State: CommandState.Published } fresh)
             {
-                return;
+                return null;
             }
 
             current = fresh;
         }
+
+        return null;
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Command {CommandId}: {State} after {Attempts} attempt(s)")]

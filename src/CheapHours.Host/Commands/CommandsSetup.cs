@@ -31,6 +31,8 @@ internal static class CommandsSetup
         services.AddCommandOptions();
         services.TryAddSingleton(sp => new RetryPolicy(sp.GetRequiredService<IOptions<CommandsOptions>>().Value.ToRetryPolicyOptions(), sp.GetRequiredService<Random>()));
         services.TryAddSingleton<CommandOutcomes>();
+        services.AddMetrics();
+        services.TryAddSingleton<CommandMetrics>();
 
         services.TryAddSingleton<ProviderCommandRoute>();
         services.TryAddSingleton<GatewayCommandRoute>();

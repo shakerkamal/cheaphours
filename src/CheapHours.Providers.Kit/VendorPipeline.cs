@@ -13,7 +13,11 @@ namespace CheapHours.Providers.Kit;
 /// </summary>
 internal static class VendorPipeline
 {
-    public static void Configure(ResiliencePipelineBuilder<HttpResponseMessage> pipeline, HttpPipelineOptions options)
+    /// <summary>Adds the strategies to <paramref name="pipeline"/>.</summary>
+    /// <param name="pipeline">The provider's pipeline.</param>
+    /// <param name="options">The provider's HTTP options.</param>
+    /// <param name="onCircuit">Told each time the breaker opens, half-opens or closes.</param>
+    public static void Configure(ResiliencePipelineBuilder<HttpResponseMessage> pipeline, HttpPipelineOptions options, Action<ProviderCircuitState>? onCircuit = null)
     {
         pipeline.AddTimeout(options.TotalTimeout);
 
@@ -37,9 +41,18 @@ internal static class VendorPipeline
             MinimumThroughput = options.MinimumThroughput,
             SamplingDuration = options.SamplingDuration,
             ShouldHandle = args => ValueTask.FromResult(IsTransient(args.Outcome)),
+            OnOpened = _ => Report(onCircuit, ProviderCircuitState.Open),
+            OnHalfOpened = _ => Report(onCircuit, ProviderCircuitState.HalfOpen),
+            OnClosed = _ => Report(onCircuit, ProviderCircuitState.Closed),
         });
 
         pipeline.AddTimeout(options.AttemptTimeout);
+    }
+
+    private static ValueTask Report(Action<ProviderCircuitState>? onCircuit, ProviderCircuitState state)
+    {
+        onCircuit?.Invoke(state);
+        return ValueTask.CompletedTask;
     }
 
     /// <summary>Whether an attempt's outcome counts as transient for the retry and the breaker.</summary>

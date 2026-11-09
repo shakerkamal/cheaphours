@@ -122,7 +122,7 @@ public sealed class PlannerConsumerTests(MongoFixture mongo, RabbitMqFixture rab
         await using var harness = await ConsumerHarness.StartAsync(rabbit.ConnectionString, nameof(PlannerConsumerTests));
         using var stop = new CancellationTokenSource();
         var handler = new PricesPublishedHandler(
-            new GoalStore(database), planning, Options.Create(new PricesOptions()), Options.Create(new PlannerOptions()), TimeProvider.System, NullLogger<PricesPublishedHandler>.Instance);
+            new GoalStore(database), planning, Options.Create(new PricesOptions()), Options.Create(new PlannerOptions()), harness.Topology, TimeProvider.System, NullLogger<PricesPublishedHandler>.Instance);
         var consumer = new BatchingConsumer<PricesPublished>(
             harness.Connection, harness.Publisher, harness.Topology.Planner, handler, PricesPublished.CurrentSchemaVersion,
             Options.Create(harness.Options), TimeProvider.System, NullLogger.Instance);

@@ -32,7 +32,7 @@ public sealed class LastReadingTests(MongoFixture mongo) : IAsyncLifetime
         return await new DeviceStateStore(_database).EnsureAsync(device, TimeSpan.FromSeconds(60), T0, TestContext.Current.CancellationToken);
     }
 
-    private Task WriteAsync(DeviceId device, params DeviceReading[] readings) =>
+    private Task<IReadOnlyDictionary<string, int>> WriteAsync(DeviceId device, params DeviceReading[] readings) =>
         Writer.WriteAsync(Consumer, [new TelemetryBatchItem(Guid.CreateVersion7(), device, "ocpp", readings, IsRepeat: false)], TestContext.Current.CancellationToken);
 
     private static DeviceReading At(TimeSpan offset, long energyWh, int? powerW = null, decimal? soc = null) =>

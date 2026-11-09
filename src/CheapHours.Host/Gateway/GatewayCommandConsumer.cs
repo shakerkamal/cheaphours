@@ -1,6 +1,9 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
 using CheapHours.Core.Commands;
+using CheapHours.Host.Commands;
+using CheapHours.Host.Observability;
 using CheapHours.Messaging;
 using CheapHours.Messaging.Contracts;
 using CheapHours.Messaging.Contracts.Json;
@@ -30,6 +33,7 @@ internal sealed partial class GatewayCommandConsumer(
     ConnectionTable connections,
     IDeviceCommandStateStore devices,
     GatewayState state,
+    GatewayMetrics metrics,
     IOptions<GatewayOptions> gatewayOptions,
     IOptions<GatewayCommandsOptions> options,
     TimeProvider time,
@@ -37,6 +41,12 @@ internal sealed partial class GatewayCommandConsumer(
 {
     /// <summary>The reason for a command whose charger this replica does not hold.</summary>
     public const string NotHeld = "the charger is not connected to this replica";
+
+    /// <summary>The span tag of the OCPP action.</summary>
+    public const string OcppActionTag = "ocpp.action";
+
+    /// <summary>The span tag of the charge point id.</summary>
+    public const string ChargePointIdTag = "cheaphours.charge_point.id";
 
     private static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(200);
     private static readonly TimeSpan PublishRetryDelay = TimeSpan.FromMilliseconds(500);
@@ -77,12 +87,30 @@ internal sealed partial class GatewayCommandConsumer(
 
         var transactionId = int.TryParse(activeSession, NumberStyles.Integer, CultureInfo.InvariantCulture, out var id) ? id : (int?)null;
         var call = OcppCommandCalls.For(request, _options.ConnectorId, _options.IdTag, transactionId);
-        return await connection.CallAsync(call.Action, call.Payload, _options.CallTimeout, time, cancellationToken).ConfigureAwait(false) switch
+
+        // The call to the charger is a client span under the command's handling span.
+        using var span = CheapHoursDiagnostics.Gateway.StartActivity($"ocpp {call.Action}", ActivityKind.Client);
+        span?.SetTag(OcppActionTag, call.Action)
+            .SetTag(ChargePointIdTag, command.ChargePointId)
+            .SetTag(CommandTracing.ProviderIdTag, OcppProvider.Id)
+            .SetTag(CommandTracing.CommandIdTag, command.CommandId.Value);
+        var started = time.GetTimestamp();
+        var called = await connection.CallAsync(call.Action, call.Payload, _options.CallTimeout, time, cancellationToken).ConfigureAwait(false);
+        metrics.RecordCall(called is ChargerCallOutcome.Replied, time.GetElapsedTime(started));
+        switch (called)
         {
-            ChargerCallOutcome.Replied replied => (OcppCommandCalls.Interpret(replied.UniqueId, replied.Reply), replied.ReceivedAt),
-            ChargerCallOutcome.TimedOut => (new SendResult.Transient($"the charger did not answer {call.Action} within {_options.CallTimeout.TotalSeconds:0} s"), null),
-            _ => ((SendResult)new SendResult.Transient("the charger's connection closed during the call"), (DateTimeOffset?)null),
-        };
+            case ChargerCallOutcome.Replied replied:
+                span?.SetTag(CommandTracing.OutcomeTag, "success");
+                return (OcppCommandCalls.Interpret(replied.UniqueId, replied.Reply), replied.ReceivedAt);
+            case ChargerCallOutcome.TimedOut:
+                span?.SetTag(CommandTracing.OutcomeTag, "transient").SetStatus(ActivityStatusCode.Error).SetTag("cheaphours.failure", "timed-out");
+                LogCallTimedOut(call.Action, command.ChargePointId, _options.CallTimeout);
+                return (new SendResult.Transient($"the charger did not answer {call.Action} within {_options.CallTimeout.TotalSeconds:0} s"), null);
+            default:
+                span?.SetTag(CommandTracing.OutcomeTag, "transient").SetStatus(ActivityStatusCode.Error).SetTag("cheaphours.failure", "connection-closed");
+                LogCallClosed(call.Action, command.ChargePointId);
+                return (new SendResult.Transient("the charger's connection closed during the call"), null);
+        }
     }
 
     /// <inheritdoc/>
@@ -189,6 +217,9 @@ internal sealed partial class GatewayCommandConsumer(
                 return;
             }
 
+            // Handled under the command's trace context, with the command named in every log entry.
+            using var process = MessagingTracing.StartProcess(topology.GatewayCommandQueue(_replicaId), command);
+            using var scope = LogScopes.ForCommand(logger, command.CommandId, command.Command.DeviceId, OcppProvider.Id);
             var (outcome, answeredAt) = await CarryOutAsync(command, cancellationToken).ConfigureAwait(false);
             var kind = Kind(outcome);
             LogOutcome(command.CommandId.Value, command.ChargePointId, kind);
@@ -253,6 +284,12 @@ internal sealed partial class GatewayCommandConsumer(
         SendResult.Rejected => "Rejected",
         _ => "Transient",
     };
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Charger {ChargePointId} did not answer {Action} within {Timeout}")]
+    private partial void LogCallTimedOut(string action, string chargePointId, TimeSpan timeout);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Charger {ChargePointId}'s connection closed during {Action}")]
+    private partial void LogCallClosed(string action, string chargePointId);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Consuming gateway commands from {Queue}")]
     private partial void LogConsuming(string queue);

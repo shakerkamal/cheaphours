@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using CheapHours.Core.Devices;
 using CheapHours.Core.Ids;
 using CheapHours.Messaging;
@@ -72,7 +73,8 @@ internal sealed partial class DeviceEventRecorder(IDeviceStateStore devices, IMe
 
         if (readings.Count > 0)
         {
-            var message = new TelemetryReceived(messageId, occurredAt, traceparent: null, deviceId, providerId, readings);
+            // The readings travel in the trace of the frame, webhook or poll that brought them.
+            var message = new TelemetryReceived(messageId, occurredAt, Activity.Current?.Id, deviceId, providerId, readings);
             await publisher.PublishAsync(message, cancellationToken).ConfigureAwait(false);
         }
     }

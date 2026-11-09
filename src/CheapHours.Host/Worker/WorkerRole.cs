@@ -1,6 +1,7 @@
 using CheapHours.Host.Commands;
 using CheapHours.Host.Devices;
 using CheapHours.Host.Goals;
+using CheapHours.Host.Observability;
 using CheapHours.Host.Polling;
 using CheapHours.Host.Prices;
 using CheapHours.Messaging;
@@ -34,12 +35,15 @@ internal static class WorkerRole
         var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(args);
         var services = builder.Services;
         var configuration = builder.Configuration;
+        builder.AddCheapHoursObservability(HostRole.Worker, ObservabilitySetup.InstanceId(HostRole.Worker, configuration));
 
         services.TryAddSingleton(TimeProvider.System);
         services.AddMongoPersistence(configuration);
         services.AddRabbitMqMessaging(configuration, ClientName);
 
         services.AddSingleton<TelemetryBatchWriter>();
+        services.AddMetrics();
+        services.AddSingleton<TelemetryMetrics>();
         services.AddSingleton<TelemetryBatchHandler>();
         services.AddSingleton<WorkerState>();
 

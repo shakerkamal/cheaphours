@@ -11,6 +11,9 @@ public sealed class OcppTestClient : IDisposable
 {
     private static readonly TimeSpan ReceiveTimeout = TimeSpan.FromSeconds(10);
 
+    // Calls from the server that arrived while CallAsync waited for its reply.
+    private readonly Queue<JsonArray> _serverCalls = new();
+
     private OcppTestClient(ClientWebSocket socket) => Socket = socket;
 
     /// <summary>Gets the socket.</summary>
@@ -93,21 +96,38 @@ public sealed class OcppTestClient : IDisposable
     public Task SendAsync(string text) =>
         Socket.SendAsync(Encoding.UTF8.GetBytes(text), WebSocketMessageType.Text, endOfMessage: true, TestContext.Current.CancellationToken);
 
-    /// <summary>Sends a frame and returns the next frame received.</summary>
+    /// <summary>
+    /// Sends a frame and returns the server's next reply to it. A call the server sends meanwhile (a command) is
+    /// kept for the next <see cref="ReceiveAsync"/>, as a real charger would still answer it.
+    /// </summary>
     /// <param name="frame">The frame to send.</param>
     /// <returns>The reply, parsed.</returns>
     public async Task<JsonArray> CallAsync(string frame)
     {
         await SendAsync(frame);
-        return await ReceiveAsync() ?? throw new InvalidOperationException($"The connection closed ({Socket.CloseStatus}) instead of answering.");
+        while (true)
+        {
+            var received = await ReadAsync(ReceiveTimeout) ?? throw new InvalidOperationException($"The connection closed ({Socket.CloseStatus}) instead of answering.");
+            if (received.Count > 0 && received[0] is JsonValue type && type.TryGetValue<int>(out var messageType) && messageType == 2)
+            {
+                _serverCalls.Enqueue(received);
+                continue;
+            }
+
+            return received;
+        }
     }
 
     /// <summary>Receives the next frame, or <see langword="null"/> when the server closes the connection.</summary>
+    /// <param name="within">How long to wait; ten seconds by default.</param>
     /// <returns>The frame, parsed.</returns>
-    public async Task<JsonArray?> ReceiveAsync()
+    public async Task<JsonArray?> ReceiveAsync(TimeSpan? within = null) =>
+        _serverCalls.TryDequeue(out var kept) ? kept : await ReadAsync(within ?? ReceiveTimeout);
+
+    private async Task<JsonArray?> ReadAsync(TimeSpan within)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
-        timeout.CancelAfter(ReceiveTimeout);
+        timeout.CancelAfter(within);
 
         var buffer = new byte[64 * 1024];
         using var message = new MemoryStream();

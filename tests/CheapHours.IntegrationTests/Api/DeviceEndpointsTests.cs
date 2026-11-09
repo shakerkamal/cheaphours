@@ -41,7 +41,7 @@ public sealed class DeviceEndpointsTests(MongoFixture mongo)
         return await new DeviceStateStore(Database(api)).EnsureAsync(device, TimeSpan.FromSeconds(60), _time.GetUtcNow(), TestContext.Current.CancellationToken);
     }
 
-    private Task StoreReadingAsync(ApiFactory api, DeviceId device, DeviceReading reading) =>
+    private Task<IReadOnlyDictionary<string, int>> StoreReadingAsync(ApiFactory api, DeviceId device, DeviceReading reading) =>
         new TelemetryBatchWriter(Database(api), _time)
             .WriteAsync("worker.telemetry", [new TelemetryBatchItem(Guid.CreateVersion7(), device, "ocpp", [reading], IsRepeat: false)], TestContext.Current.CancellationToken);
 

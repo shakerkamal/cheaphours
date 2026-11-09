@@ -1,9 +1,11 @@
+using System.Diagnostics.Metrics;
 using System.Net;
 using System.Net.Sockets;
 using CheapHours.Host.Worker;
 using CheapHours.IntegrationTests.Infrastructure;
 using CheapHours.Persistence;
 using CheapHours.Persistence.Telemetry;
+using Microsoft.Extensions.DependencyInjection;
 using MongoDB.Bson;
 using Testcontainers.MongoDb;
 
@@ -35,7 +37,8 @@ public sealed class ConsumerOutageTests(RabbitMqFixture rabbit)
         await MongoIndexes.EnsureAsync(database, ct);
 
         await using var harness = await ConsumerHarness.StartAsync(rabbit.ConnectionString, nameof(ConsumerOutageTests));
-        harness.Consume(new TelemetryBatchHandler(new TelemetryBatchWriter(database, TimeProvider.System)));
+        using var meters = new ServiceCollection().AddMetrics().BuildServiceProvider();
+        harness.Consume(new TelemetryBatchHandler(new TelemetryBatchWriter(database, TimeProvider.System), new TelemetryMetrics(meters.GetRequiredService<IMeterFactory>())));
 
         await mongo.StopAsync(ct);
         var device = TestMessages.NewDevice();

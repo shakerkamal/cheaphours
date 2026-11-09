@@ -39,9 +39,9 @@ internal sealed class GatewayCommands : IAsyncDisposable
     public static DeviceCommand Command(CommandType type, int? maxPowerW = null) =>
         new(CommandId.New(TimeProvider.System), DeviceId.Parse("dev_cp001"), type, $"key_{Guid.NewGuid():N}", maxPowerW);
 
-    public Task SendAsync(DeviceCommand command, string chargePointId = "CP001") =>
+    public Task SendAsync(DeviceCommand command, string chargePointId = "CP001", string? traceparent = null) =>
         _gateway.Services.GetRequiredService<IMessagePublisher>().SendToQueueAsync(
-            new GatewayCommand(Guid.CreateVersion7(), DateTimeOffset.UtcNow, null, chargePointId, GatewayFactory.ReplicaId, command),
+            new GatewayCommand(Guid.CreateVersion7(), DateTimeOffset.UtcNow, traceparent, chargePointId, GatewayFactory.ReplicaId, command),
             Queue,
             TestContext.Current.CancellationToken);
 

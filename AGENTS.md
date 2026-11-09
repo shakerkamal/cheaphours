@@ -22,8 +22,7 @@ page is binding.
 
 ## Status
 
-**Next:** observability: OpenTelemetry traces through the messages, the six metrics and a local Aspire dashboard
-(needs its own `/opsx:propose`).
+**Next:** delivery, starting with the small dashboard on the public API (`/opsx:propose`), then stop for review.
 
 ### Done
 
@@ -147,7 +146,9 @@ page is binding.
 - **Local environment:** `docker compose` with MongoDB 8.0 (single-node replica set, self-initialising),
   RabbitMQ 4.2, the Solidstudio OCPP 1.6 simulator built from a pinned commit, the car-cloud
   simulator (`5090`) and the heat-pump-cloud simulator (`5091`, posting to the gateway through
-  `host.docker.internal`), on pinned .NET images; five healthy services.
+  `host.docker.internal`), on pinned .NET images; five healthy services. The standalone Aspire dashboard
+  (`aspire-dashboard:13.6.1`, UI `localhost:18888`, OTLP `4317`/`4318`, loopback only, no login, no health check)
+  receives what the roles export when started with `OTEL_EXPORTER_OTLP_ENDPOINT` (README "Observe a command").
   - Local secrets live in a git-ignored `.env` (the charger password, the RabbitMQ account, the
     car-cloud client secret and seed refresh token, the heat-pump signing secret).
   - The gateway's password hash and `Providers:HeatPumpCloud` settings, the broker connection string
@@ -341,25 +342,51 @@ page is binding.
     included), another body gets `409 idempotency-key-reused`, a repeat while the first runs gets `409
     conflict` (taken over after a minute), and responses of 500 and above are not kept.
   - The README walks through today's prices and a demo goal for the simulated car and wallbox.
+- **Observability (ADR-009):** every role registers OpenTelemetry through
+  `ObservabilitySetup` (service name `cheaphours-{role}`, instance id = gateway replica id or machine name; the
+  CheapHours sources and meters, ASP.NET Core without `/health` and `/ocpp`, HttpClient, `System.Runtime`), exports
+  traces, metrics and logs over OTLP only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set, and writes JSON console logs
+  outside Development (UTC, scopes, trace and span ids). Architecture tests keep the OpenTelemetry SDK in the Host
+  and spans and metrics out of Core and Planning.
+  - Traces: messages keep the trace context they were created with; publish and handling spans
+    (`MessagingTracing`, `SpanScope`) are its children and never rewrite the `traceparent`. A command is one trace
+    from the API request through the outbox publish, `dispatch {CommandType}` (with the vendor HTTP call), the
+    gateway's handling and `ocpp {Action}` call, the result and the monitor's `command confirm` / `reconcile` /
+    `resend` / `reannounce` / `dead-letter` (an error span). Each OCPP frame, webhook request, `poll {providerId}`
+    and `price-import` run starts a trace that its `TelemetryReceived` or `PricesPublished` carries; re-planning
+    continues the import's trace; a `telemetry store` batch links to its messages' traces. Failed spans carry the
+    exception type only.
+  - Log scopes (`LogScopes`): `commandId`, `deviceId`, `providerId` around work on a command; `providerId` and
+    `externalId` around frames, webhooks and poll results.
+  - Metrics, tagged only `provider.id`, `outcome`, `command.type`, `reason`, recorded after the stored change:
+    vendor calls (`cheaphours.provider.requests` / `.request.duration`, OCPP command calls as `ocpp`: `success` or
+    `transient`, none for already-in-effect); `cheaphours.provider.circuit.state` per HTTP provider from the breaker
+    callbacks (`ProviderCircuitStates`, 0 from startup); `cheaphours.command.confirmation.duration` (due → confirmed);
+    `cheaphours.command.dead_lettered` (`attempts-exhausted`, `dispatch-kept-failing`, `not-confirmed`);
+    `cheaphours.outbox.lag` from the relay's due listing on a pass run under the lease (cleared when a pass finds
+    the lease taken); `cheaphours.gateway.connections` per replica; `cheaphours.telemetry.readings` from what
+    `TelemetryBatchWriter.WriteAsync` returns it stored per provider.
+  - Tests observe spans and metrics in-process (`tests/Shared/Observability`: `SpanRecorder`, `MetricRecorder`);
+    the export tests post to a WireMock OTLP receiver.
 - **ADRs:** 001 (modular monolith), 002 (time-series telemetry), 003 (RabbitMQ), 004 (own outbox and
   inbox), 005 (greedy cheapest-slot planner), 006 (OCPP 1.6J smart-charging messages), 008 (gateway command
-  routing).
+  routing), 009 (OpenTelemetry; messages keep their trace context).
 - **Reliability catalogue:** `docs/reliability.md` maps every row of the System Design reliability table to
   its tests by class and method; `ReliabilityCatalogueTests` fails when a named test no longer exists. Gate
   fault tests (`tests/CheapHours.IntegrationTests/Faults`): a worker stopped between save and publish, the
   broker stopped while three commands are accepted, a charger dropping mid-command and reconnecting
   `Available`; each command reaches its device exactly once.
-- **Tests:** 1686 green and 31 skipped by design (contract rules that do not fit a provider): unit,
+- **Tests:** 1743 green and 31 skipped by design (contract rules that do not fit a provider): unit,
   property, architecture, API contract, provider contract, and integration tests against a
   real MongoDB and RabbitMQ in Testcontainers, with a real gateway on Kestrel, a real worker host and
   the API role on its own database (one model-based FsCheck test checks the bucket pipeline; four planner
   property tests run 1,000 cases each; a golden test plans against recorded real prices).
-  The integration tests include broker and database fault tests. `dotnet test` needs Docker running.
+  The integration tests include broker and database fault tests, and the observability tests
+  (`tests/CheapHours.IntegrationTests/Observability`: spans, log scopes and metrics checked in-process, OTLP export to
+  a WireMock receiver). `dotnet test` needs Docker running.
 
 ### Left to build
 
-- **Observability:** OpenTelemetry traces through the messages (the `traceparent` already travels in every
-  envelope and is stored on commands), the six metrics, a local Aspire dashboard.
 - **Delivery:** small dashboard on the public API, GitHub Actions pipeline, Helm chart, k6 load test,
   README with architecture diagram and demo.
 - **CheapHours Assistant (separate repo):** MCP server and agent host over the public API only.
@@ -409,6 +436,10 @@ Pinned in `Directory.Packages.props`. `Microsoft.*` 10.0.x packages match the in
 | Microsoft.Extensions.Options.ConfigurationExtensions | 10.0.12 | Providers.Kit, Persistence |
 | MongoDB.Driver | 3.12.0 | Persistence (and Host through it) |
 | NJsonSchema | 11.6.1 | Providers.Ocpp (OCPP 1.6 schemas are draft-04; brings in Newtonsoft.Json) |
+| OpenTelemetry.Exporter.OpenTelemetryProtocol | 1.20.1 | Host only (OTLP export of traces, metrics and logs) |
+| OpenTelemetry.Extensions.Hosting | 1.20.1 | Host only (tracer, meter and logger providers) |
+| OpenTelemetry.Instrumentation.AspNetCore | 1.20.1 | Host only (request spans) |
+| OpenTelemetry.Instrumentation.Http | 1.20.1 | Host only (vendor HTTP call spans) |
 | RabbitMQ.Client | 7.2.2 | Messaging (async-only API; publisher confirms with tracking) |
 | Scalar.AspNetCore | 2.18.0 | Host (Development only) |
 | FsCheck.Xunit.v3 | 3.5.0 | UnitTests (property tests), IntegrationTests (model-based telemetry bucket test) |
@@ -444,7 +475,9 @@ dotnet test                                    # all tests; integration tests ne
 dotnet test --project tests/CheapHours.UnitTests --filter-class "*RoleParserTests"   # one class (MTP/xUnit v3 syntax)
 dotnet test --filter-method "*Role*"           # by method name; VSTest-style --filter is not supported
 dotnet run --project src/CheapHours.Host -- --role api      # or gateway | worker (Development via launchSettings)
-docker compose up -d --wait                    # local MongoDB, RabbitMQ and the three vendor simulators (needs .env, see README)
+docker compose up -d --wait                    # local MongoDB, RabbitMQ, the three vendor simulators and the Aspire dashboard (needs .env, see README)
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 dotnet run --project src/CheapHours.Host -- --role worker   # export to the dashboard (any role); open http://localhost:18888
+dotnet test --project tests/CheapHours.IntegrationTests --filter-class "*CommandTraceTests"   # one trace from the API call to the charger's confirmation; bounded metric tags
 dotnet run --project src/CheapHours.Host -- --role gateway --urls http://localhost:5081   # the charger connects and heat-pump webhooks arrive here
 dotnet run --project src/CheapHours.Host -- --role worker      # stores telemetry; polls the car cloud when Providers:CarCloud is set; imports prices (--Prices:ImportEnabled=false to stop) and re-plans goals
 dotnet test --project tests/CheapHours.UnitTests --filter-class "*GreedyPlannerPropertyTests"   # the planner's four properties, 1,000 cases each

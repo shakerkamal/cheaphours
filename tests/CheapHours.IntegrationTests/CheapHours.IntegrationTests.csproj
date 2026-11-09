@@ -23,4 +23,8 @@
     <ProjectReference Include="..\..\simulators\CheapHours.Simulators.CarCloud\CheapHours.Simulators.CarCloud.csproj" />
     <ProjectReference Include="..\..\simulators\CheapHours.Simulators.HeatPumpCloud\CheapHours.Simulators.HeatPumpCloud.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <!-- Span and metric recorders shared by the unit and integration tests. -->
+    <Compile Include="../Shared/Observability/*.cs" Link="Shared/Observability/%(Filename)%(Extension)" />
+  </ItemGroup>
 </Project>

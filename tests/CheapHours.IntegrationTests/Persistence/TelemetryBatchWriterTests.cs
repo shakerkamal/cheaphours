@@ -98,6 +98,21 @@ public sealed class TelemetryBatchWriterTests(MongoFixture mongo) : IAsyncLifeti
         Assert.Single(await ReadingsOf(device));
     }
 
+    // What the writer returns feeds cheaphours.telemetry.readings: only readings it stored, per provider.
+    [Fact]
+    public async Task It_returns_the_readings_it_stored_per_provider_and_nothing_for_handled_messages()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var charger = Item(Guid.CreateVersion7(), NewDevice(), [Reading(0, 100), Reading(15, 110), Reading(30, 120)]);
+        var vehicle = new TelemetryBatchItem(Guid.CreateVersion7(), NewDevice(), "carcloud", [Reading(0, 5_000)], IsRepeat: false);
+
+        var first = await Writer.WriteAsync(Consumer, [charger, vehicle, charger], ct);
+        var again = await Writer.WriteAsync(Consumer, [charger with { IsRepeat = true }, vehicle], ct);
+
+        Assert.Equal(new Dictionary<string, int> { ["ocpp"] = 3, ["carcloud"] = 1 }, first);
+        Assert.Empty(again);
+    }
+
     [Fact]
     public async Task A_repeat_after_a_partial_write_is_stored_once()
     {

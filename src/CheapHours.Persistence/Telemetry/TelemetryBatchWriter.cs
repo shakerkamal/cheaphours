@@ -33,9 +33,12 @@ public sealed class TelemetryBatchWriter
     /// <param name="consumer">The consumer name, which scopes the inbox.</param>
     /// <param name="batch">The delivered messages; duplicates and already handled ones are skipped.</param>
     /// <param name="cancellationToken">Cancels the write.</param>
-    /// <returns>A task that completes when every message of the batch is stored and recorded as handled.</returns>
+    /// <returns>
+    /// The number of readings stored, per provider id: the readings of the messages not handled before, so a
+    /// redelivered message adds nothing. Empty when the whole batch was handled already.
+    /// </returns>
     /// <exception cref="MongoException">The database failed; the whole batch may be written again as a repeat.</exception>
-    public async Task WriteAsync(string consumer, IReadOnlyList<TelemetryBatchItem> batch, CancellationToken cancellationToken)
+    public async Task<IReadOnlyDictionary<string, int>> WriteAsync(string consumer, IReadOnlyList<TelemetryBatchItem> batch, CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(consumer);
         ArgumentNullException.ThrowIfNull(batch);
@@ -47,13 +50,13 @@ public sealed class TelemetryBatchWriter
             .ToList();
         if (unique.Count == 0)
         {
-            return;
+            return Stored([]);
         }
 
         var fresh = await DropHandledAsync(consumer, unique, cancellationToken).ConfigureAwait(false);
         if (fresh.Count == 0)
         {
-            return;
+            return Stored([]);
         }
 
         await RemovePartialWritesAsync(fresh.Where(i => i.IsRepeat).ToList(), cancellationToken).ConfigureAwait(false);
@@ -66,7 +69,11 @@ public sealed class TelemetryBatchWriter
 
         await MoveLastReadingsForwardAsync(fresh, cancellationToken).ConfigureAwait(false);
         await RecordHandledAsync(consumer, fresh, cancellationToken).ConfigureAwait(false);
+        return Stored(fresh);
     }
+
+    private static Dictionary<string, int> Stored(List<TelemetryBatchItem> stored) =>
+        stored.GroupBy(i => i.ProviderId, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Sum(i => i.Readings.Count), StringComparer.Ordinal);
 
     // One update per device, with only the batch's newest reading: older ones could never win anyway. A
     // device that does not exist is simply not matched; readings never create a device.

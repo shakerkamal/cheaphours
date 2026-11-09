@@ -27,7 +27,7 @@ public sealed class TelemetryReaderTests(MongoFixture mongo) : IAsyncLifetime
 
     private static DeviceReading At(int minute, long energyWh, decimal? soc = null) => new("CP001", Ten.AddMinutes(minute), null, energyWh, soc);
 
-    private Task StoreAsync(DeviceId device, params DeviceReading[] readings) =>
+    private Task<IReadOnlyDictionary<string, int>> StoreAsync(DeviceId device, params DeviceReading[] readings) =>
         new TelemetryBatchWriter(_database, new FakeTimeProvider(Ten))
             .WriteAsync("worker.telemetry", [new TelemetryBatchItem(Guid.CreateVersion7(), device, "ocpp", readings, IsRepeat: false)], TestContext.Current.CancellationToken);
 

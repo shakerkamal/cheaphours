@@ -1,4 +1,8 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
+using CheapHours.Host.Commands;
+using CheapHours.Host.Observability;
+using CheapHours.Messaging;
 using CheapHours.Persistence.ProviderAccounts;
 using CheapHours.Providers.Kit;
 
@@ -121,6 +125,15 @@ internal sealed partial class ProviderPollingLoop
 
     private async Task PollAsync(ProviderAccount account, CancellationToken stoppingToken)
     {
+        // Each poll of an account is a trace of its own: its vendor calls and the readings it publishes belong to it.
+        using var span = SpanScope.StartRoot(CheapHoursDiagnostics.Jobs, $"poll {_provider.ProviderId}", ActivityKind.Internal)
+            .Tag(CommandTracing.ProviderIdTag, _provider.ProviderId);
+        using var scope = LogScopes.ForDevice(_logger, _provider.ProviderId, externalId: null);
+        await PollInSpanAsync(account, span, stoppingToken).ConfigureAwait(false);
+    }
+
+    private async Task PollInSpanAsync(ProviderAccount account, SpanScope span, CancellationToken stoppingToken)
+    {
         var started = _time.GetUtcNow();
         PollResult result;
         using (var deadline = new CancellationTokenSource(_settings.TotalTimeout * 3, _time))
@@ -162,8 +175,10 @@ internal sealed partial class ProviderPollingLoop
         }
 
         var (next, pausedUntil) = Schedule(started, _settings.PollInterval, result);
+        span.Tag(CommandTracing.OutcomeTag, result is PollResult.Completed ? "completed" : "failed");
         if (result is PollResult.Failed failed)
         {
+            span.Fail("poll-failed");
             LogPollFailed(_provider.ProviderId, account.ExternalAccountId, failed.Reason, next);
         }
 

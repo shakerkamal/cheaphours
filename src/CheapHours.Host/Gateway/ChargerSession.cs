@@ -1,9 +1,12 @@
+using System.Diagnostics;
 using System.Globalization;
 using System.Net.WebSockets;
 using System.Text;
 using CheapHours.Core.Devices;
 using CheapHours.Core.Ids;
+using CheapHours.Host.Commands;
 using CheapHours.Host.Devices;
+using CheapHours.Host.Observability;
 using CheapHours.Messaging;
 using CheapHours.Persistence.ChargePoints;
 using CheapHours.Persistence.Connections;
@@ -183,6 +186,15 @@ internal sealed partial class ChargerSession(
 
         // Any frame, valid or not, is a sign of life.
         connection.Seen(receivedAt);
+        var frame = OcppProvider.Decode(bytes);
+
+        // Each frame is a trace of its own (the /ocpp request lasts as long as the connection and is not traced), and
+        // every log entry while handling it names the charger.
+        using var span = SpanScope.StartRoot(CheapHoursDiagnostics.Gateway, FrameSpanName(frame), ActivityKind.Server)
+            .Tag(GatewayCommandConsumer.OcppActionTag, ActionName(frame))
+            .Tag(GatewayCommandConsumer.ChargePointIdTag, connection.ChargePointId)
+            .Tag(CommandTracing.ProviderIdTag, OcppProvider.Id);
+        using var scope = LogScopes.ForDevice(logger, OcppProvider.Id, connection.ChargePointId);
         try
         {
             await devices.RecordSeenAsync(OcppProvider.Id, connection.ChargePointId, receivedAt, cancellationToken).ConfigureAwait(false);
@@ -193,8 +205,6 @@ internal sealed partial class ChargerSession(
             var errorName = ex.GetType().Name;
             LogSeenFailed(connection.ChargePointId, errorName);
         }
-
-        var frame = OcppProvider.Decode(bytes);
 
         // The answer to a call the gateway sent goes to the command waiting for it; others are handled as before.
         if (connection.TryCompleteCall(frame, receivedAt))
@@ -223,6 +233,7 @@ internal sealed partial class ChargerSession(
             }
             catch (Exception ex) when (ex is MongoException or TimeoutException or BrokerUnavailableException)
             {
+                span.Fail(ex);
                 LogEffectFailed(call.Action, connection.ChargePointId, ex.GetType().Name);
                 reply = OcppCallHandler.InternalErrorReply(call.UniqueId);
             }
@@ -230,6 +241,7 @@ internal sealed partial class ChargerSession(
 
         if (outcome.Error is { } error)
         {
+            span.Fail(error.ToString());
             var action = ActionName(frame);
             LogRefused(action, connection.ChargePointId, error);
         }
@@ -258,6 +270,13 @@ internal sealed partial class ChargerSession(
     // Action names come from the charger: only log names OCPP defines, never arbitrary text.
     private static string ActionName(OcppFrame frame) =>
         frame is OcppCall call && OcppActions.IsKnown(call.Action) ? call.Action : "(other)";
+
+    private static string FrameSpanName(OcppFrame frame) => frame switch
+    {
+        OcppCall => $"ocpp {ActionName(frame)}",
+        OcppCallResult or OcppCallError => "ocpp reply",
+        _ => "ocpp (malformed)",
+    };
 
     private static async Task AnswerCloseAsync(ChargerConnection connection)
     {

@@ -67,7 +67,7 @@ public sealed class RabbitMqPublisher : IMessagePublisher, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(message);
         var body = JsonSerializer.SerializeToUtf8Bytes(message, message.GetType(), CheapHoursJson.Options);
-        return PublishRawAsync(_topology.EventsExchange, message.MessageType, body, PropertiesFor(message), cancellationToken);
+        return TracedPublishAsync(_topology.EventsExchange, message.MessageType, body, PropertiesFor(message), message.MessageId, message.MessageType, message.Traceparent, cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -76,7 +76,7 @@ public sealed class RabbitMqPublisher : IMessagePublisher, IAsyncDisposable
         ArgumentNullException.ThrowIfNull(message);
         ArgumentException.ThrowIfNullOrWhiteSpace(queue);
         var body = JsonSerializer.SerializeToUtf8Bytes(message, message.GetType(), CheapHoursJson.Options);
-        return PublishRawAsync(string.Empty, queue, body, PropertiesFor(message), cancellationToken);
+        return TracedPublishAsync(string.Empty, queue, body, PropertiesFor(message), message.MessageId, message.MessageType, message.Traceparent, cancellationToken);
     }
 
     /// <inheritdoc/>
@@ -84,11 +84,14 @@ public sealed class RabbitMqPublisher : IMessagePublisher, IAsyncDisposable
     {
         ArgumentNullException.ThrowIfNull(message);
         ArgumentException.ThrowIfNullOrWhiteSpace(destination);
-        return PublishRawAsync(
+        return TracedPublishAsync(
             toQueue ? string.Empty : _topology.EventsExchange,
             destination,
             Encoding.UTF8.GetBytes(message.Json),
             PropertiesFor(message),
+            message.MessageId,
+            message.Type,
+            message.Traceparent,
             cancellationToken);
     }
 
@@ -144,6 +147,29 @@ public sealed class RabbitMqPublisher : IMessagePublisher, IAsyncDisposable
     {
         await DropChannelAsync().ConfigureAwait(false);
         _gate.Dispose();
+    }
+
+    // A producer span under the message's own trace context; the message's traceparent is sent as it is.
+    private async Task TracedPublishAsync(
+        string exchange,
+        string routingKey,
+        ReadOnlyMemory<byte> body,
+        BasicProperties properties,
+        Guid messageId,
+        string messageType,
+        string? traceparent,
+        CancellationToken cancellationToken)
+    {
+        using var span = MessagingTracing.StartPublish(exchange.Length > 0 ? exchange : routingKey, routingKey, messageId, messageType, traceparent);
+        try
+        {
+            await PublishRawAsync(exchange, routingKey, body, properties, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            span.Fail(ex);
+            throw;
+        }
     }
 
     private static BasicProperties Properties(Guid messageId, string type, int schemaVersion, DateTimeOffset occurredAt, string? traceparent)

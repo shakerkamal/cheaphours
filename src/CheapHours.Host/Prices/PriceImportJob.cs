@@ -1,6 +1,8 @@
+using System.Diagnostics;
 using System.Globalization;
 using CheapHours.Host.Devices;
 using CheapHours.Host.Goals;
+using CheapHours.Host.Observability;
 using CheapHours.Host.Worker;
 using CheapHours.Messaging;
 using CheapHours.Messaging.Contracts;
@@ -73,7 +75,15 @@ internal sealed partial class PriceImportJob(
         }
     }
 
+    // Each run is a trace of its own; the day it announces, and the re-planning that follows, belong to it.
     private async Task ImportAsync(CancellationToken cancellationToken)
+    {
+        using var span = SpanScope.StartRoot(CheapHoursDiagnostics.Jobs, "price-import", ActivityKind.Internal)
+            .Tag("cheaphours.price.zone", _options.Zone);
+        await ImportInSpanAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task ImportInSpanAsync(CancellationToken cancellationToken)
     {
         var now = time.GetUtcNow();
         var zone = _options.Zone;
@@ -177,7 +187,7 @@ internal sealed partial class PriceImportJob(
             return;
         }
 
-        var message = new PricesPublished(AnnouncementId(zone, day), time.GetUtcNow(), traceparent: null, zone, day, complete.SlotCount);
+        var message = new PricesPublished(AnnouncementId(zone, day), time.GetUtcNow(), Activity.Current?.Id, zone, day, complete.SlotCount);
         try
         {
             await publisher.PublishAsync(message, cancellationToken).ConfigureAwait(false);

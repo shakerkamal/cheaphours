@@ -101,6 +101,14 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 
         builder.UseSetting("role", "api");
         builder.UseEnvironment("Testing");
+
+        // The role reads some values while it registers services (OTEL_EXPORTER_OTLP_ENDPOINT), before the
+        // configuration below is applied; host settings are visible by then.
+        foreach (var (key, value) in _overrides)
+        {
+            builder.UseSetting(key, value);
+        }
+
         builder.ConfigureAppConfiguration((_, config) =>
         {
             var values = new Dictionary<string, string?>

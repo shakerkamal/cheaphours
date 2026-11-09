@@ -92,17 +92,21 @@ public static class ProviderServiceCollectionExtensions
         static HttpProviderOptions Options(IServiceProvider sp) => (HttpProviderOptions)(object)sp.GetRequiredService<IOptions<TOptions>>().Value;
 
         services.AddSingleton<IValidateOptions<TOptions>>(new HttpProviderOptionsValidator<TOptions>(configSection));
-        services.AddMetrics();
+        services.AddProviderMetrics();
+        services.AddSingleton(new CircuitRegistration(typeof(TProvider)));
         services.TryAddSingleton(TimeProvider.System);
-        services.TryAddSingleton<ProviderMetrics>();
         services.TryAddSingleton<AccountRateLimiter>();
 
+        // The resilience registry caches the pipeline per provider, so every client of the provider shares one breaker.
         services.AddHttpClient(typeof(TProvider).FullName!, (sp, client) =>
             {
                 client.BaseAddress = Options(sp).BaseAddress;
                 client.Timeout = Timeout.InfiniteTimeSpan; // the pipeline's timeouts govern
             })
-            .AddResilienceHandler("vendor", (pipeline, context) => VendorPipeline.Configure(pipeline, Options(context.ServiceProvider).Http));
+            .AddResilienceHandler("vendor", (pipeline, context) => VendorPipeline.Configure(
+                pipeline,
+                Options(context.ServiceProvider).Http,
+                state => context.ServiceProvider.GetRequiredService<ProviderCircuitStates>().Set(typeof(TProvider), state)));
 
         var isOAuth = typeof(OAuthProviderOptions).IsAssignableFrom(typeof(TOptions));
         var tokenClientName = typeof(TProvider).FullName + ".token";
@@ -142,6 +146,22 @@ public static class ProviderServiceCollectionExtensions
             var options = Options(sp);
             return new ProviderPollingSettings(typeof(TProvider), options.PollInterval, options.Http.TotalTimeout);
         });
+    }
+
+    /// <summary>
+    /// Registers the vendor-call instruments on the <c>CheapHours.Providers</c> meter (<see cref="ProviderMetrics"/>)
+    /// and the circuit-breaker states they report. <c>AddProvider</c> does this for HTTP providers; a host that calls
+    /// devices another way (the OCPP gateway) calls it to record those calls on the same instruments.
+    /// </summary>
+    /// <param name="services">The service collection.</param>
+    /// <returns>The same service collection.</returns>
+    public static IServiceCollection AddProviderMetrics(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        services.AddMetrics();
+        services.TryAddSingleton(sp => new ProviderCircuitStates(sp.GetServices<CircuitRegistration>(), sp));
+        services.TryAddSingleton<ProviderMetrics>();
+        return services;
     }
 
     private static void AddAs<TProvider, TInterface>(IServiceCollection services)

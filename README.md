@@ -137,7 +137,8 @@ your machine, the worker polls the car cloud, and the heat-pump cloud posts sign
    posts to `http://host.docker.internal:5081/webhooks/heatpumpcloud/acct_demo` every 15 seconds, so
    the report interval matches; it defaults to one minute.
 
-7. **Start the stack** and wait until all five services are healthy:
+7. **Start the stack** and wait until the five services with a health check are healthy (the telemetry
+   dashboard has none; it just runs):
 
    ```sh
    docker compose up -d --wait
@@ -317,6 +318,36 @@ your machine, the worker polls the car cloud, and the heat-pump cloud posts sign
     simulator also forgets rotated tokens when it restarts, which looks the same to the worker. To link
     the account again, restart the simulator (`docker compose restart car-cloud`), which accepts its
     configured seed once more, then restart the worker, which gives the marked account that seed again.
+
+17. **Observe a command.** The stack's Aspire dashboard (<http://localhost:18888>) receives the traces, metrics
+    and logs of every role started with `OTEL_EXPORTER_OTLP_ENDPOINT`; without it, nothing is exported. Restart
+    the three roles from step 8 with the variable set:
+
+    ```sh
+    export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+    dotnet run --project src/CheapHours.Host -- --role gateway --urls http://localhost:5081
+    dotnet run --project src/CheapHours.Host -- --role worker
+    dotnet run --project src/CheapHours.Host -- --role api --urls http://localhost:5080
+    ```
+
+    ```powershell
+    $env:OTEL_EXPORTER_OTLP_ENDPOINT = 'http://localhost:4317'   # in each of the three terminals
+    ```
+
+    Post a direct `StartCharging` for the wallbox (step 15) and note the command id. In the dashboard:
+
+    - **Structured logs**: filter on `commandId` = the command id; every entry about the command carries it,
+      with `deviceId` and `providerId`, and links to its trace.
+    - **Traces**: the command's trace holds spans from `cheaphours-api` (the `POST`), `cheaphours-worker`
+      (the outbox publish, `dispatch StartCharging`, the result and `command confirm`) and `cheaphours-gateway`
+      (the command's handling and the `ocpp RemoteStartTransaction` call). Each charger frame, poll and price
+      import is a trace of its own.
+    - **Metrics**: `cheaphours.provider.requests` and `cheaphours.provider.request.duration` (vendor and OCPP
+      calls), `cheaphours.provider.circuit.state`, `cheaphours.command.confirmation.duration`,
+      `cheaphours.command.dead_lettered`, `cheaphours.outbox.lag`, `cheaphours.gateway.connections` and
+      `cheaphours.telemetry.readings`, each tagged by provider, never by device.
+
+    Outside Development the console logs are one JSON object per line, with the trace and span ids.
 
 `docker compose down -v` stops everything and deletes the local data.
 

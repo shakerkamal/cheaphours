@@ -1,5 +1,6 @@
 using CheapHours.Host.Devices;
 using CheapHours.Host.Health;
+using CheapHours.Host.Observability;
 using CheapHours.Messaging;
 using CheapHours.Persistence;
 using CheapHours.Providers.HeatPumpCloud;
@@ -30,6 +31,7 @@ internal static class GatewayRole
     public static WebApplication Build(string[] args)
     {
         var builder = WebApplication.CreateBuilder(args);
+        builder.AddCheapHoursObservability(HostRole.Gateway, ObservabilitySetup.InstanceId(HostRole.Gateway, builder.Configuration));
         var services = builder.Services;
 
         services.Configure<HostOptions>(o => o.ShutdownTimeout = TimeSpan.FromSeconds(15));
@@ -53,6 +55,8 @@ internal static class GatewayRole
 
         services.AddSingleton<GatewayState>();
         services.AddSingleton<ConnectionTable>();
+        services.AddProviderMetrics();
+        services.AddSingleton<GatewayMetrics>();
         services.AddSingleton<ChargerAuthenticator>();
         services.AddSingleton<DeviceEventRecorder>();
         services.AddSingleton<DeviceEventIngestor>();

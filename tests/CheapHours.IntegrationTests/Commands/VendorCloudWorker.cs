@@ -10,6 +10,7 @@ using CheapHours.Persistence.Commands;
 using CheapHours.Persistence.Devices;
 using CheapHours.Providers.CarCloud;
 using CheapHours.Providers.Kit.Testing;
+using CapturingLoggerProvider = CheapHours.IntegrationTests.Infrastructure.CapturingLoggerProvider;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
@@ -29,16 +30,20 @@ internal sealed class VendorCloudWorker : IAsyncDisposable
     private readonly string _keys;
     private int _requestIds;
 
-    private VendorCloudWorker(WireMockVendorFake vendor, IHost host, IMongoDatabase database, DeviceId vehicle, string keys)
+    private VendorCloudWorker(WireMockVendorFake vendor, IHost host, IMongoDatabase database, DeviceId vehicle, string keys, CapturingLoggerProvider logs)
     {
         Vendor = vendor;
         Host = host;
         Database = database;
         Vehicle = vehicle;
         _keys = keys;
+        Logs = logs;
     }
 
     public WireMockVendorFake Vendor { get; }
+
+    /// <summary>Gets every log entry the worker wrote.</summary>
+    public CapturingLoggerProvider Logs { get; }
 
     public IHost Host { get; }
 
@@ -93,8 +98,9 @@ internal sealed class VendorCloudWorker : IAsyncDisposable
             await beforeStart(database, vehicle);
         }
 
-        var host = await WorkerHost.StartAsync(mongo, rabbitConnectionString ?? rabbit.ConnectionString, databaseName, RabbitMqFixture.NewPrefix(owner), settings, configure: configure);
-        var worker = new VendorCloudWorker(vendor, host, database, vehicle, keys);
+        var logs = new CapturingLoggerProvider();
+        var host = await WorkerHost.StartAsync(mongo, rabbitConnectionString ?? rabbit.ConnectionString, databaseName, RabbitMqFixture.NewPrefix(owner), settings, logs, configure);
+        var worker = new VendorCloudWorker(vendor, host, database, vehicle, keys, logs);
         vendor.Map(HttpMethod.Get, "^/api/v1/vehicles$", (_, _) => VendorAnswer.Json(new { vehicles = Array.Empty<object>() }));
         vendor.Map(HttpMethod.Post, CommandPath.ToString(), (_, _) => VendorAnswer.Json(new { requestId = $"req-{Interlocked.Increment(ref worker._requestIds)}" }, 202));
         return worker;
@@ -118,18 +124,28 @@ internal sealed class VendorCloudWorker : IAsyncDisposable
     }
 
     /// <summary>Stores a <c>Pending</c> command for the vehicle with its outbox entry.</summary>
-    public async Task<StoredCommand> PendingAsync(CommandType type = CommandType.StartCharging, DateTimeOffset? dueAt = null, DateTimeOffset? availableAt = null)
+    public async Task<StoredCommand> PendingAsync(CommandType type = CommandType.StartCharging, DateTimeOffset? dueAt = null, DateTimeOffset? availableAt = null, string? traceparent = null)
     {
         var now = DateTimeOffset.UtcNow;
         var command = new StoredCommand(
             Command.Create(new DeviceCommand(CommandId.New(TimeProvider.System), Vehicle, type, $"key_{Guid.NewGuid():N}"), now, dueAt ?? now),
             Owner,
-            null);
+            traceparent);
         Assert.True(await Commands.CreateWithOutboxAsync(command, CommandOutbox.Announce(command, now, availableAt), TestContext.Current.CancellationToken));
         return command;
     }
 
     public async Task<StoredCommand> ReadAsync(CommandId id) => (await Commands.FindAsync(id, TestContext.Current.CancellationToken))!;
+
+    /// <summary>Gets the worker's command monitor; the test runs its passes (the timer is slowed to an hour).</summary>
+    public CommandMonitor Monitor => Host.Services.GetRequiredService<CommandMonitor>();
+
+    /// <summary>Records a status for the vehicle as its next poll would, received now.</summary>
+    public Task ReportStatusAsync(DeviceStatus status)
+    {
+        var now = DateTimeOffset.UtcNow;
+        return new DeviceStateStore(Database).RecordStatusAsync(CarCloudProvider.Id, "veh_fake", status, now, now, TestContext.Current.CancellationToken);
+    }
 
     public async ValueTask DisposeAsync()
     {

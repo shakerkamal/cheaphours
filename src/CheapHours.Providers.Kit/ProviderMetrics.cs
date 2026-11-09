@@ -5,9 +5,10 @@ namespace CheapHours.Providers.Kit;
 
 /// <summary>
 /// Counts and times vendor calls on the <c>CheapHours.Providers</c> meter, tagged with the provider id and the
-/// classified outcome only: never an account, a device or a token.
+/// classified outcome only: never an account, a device or a token. Public so that the OCPP gateway records its
+/// command calls on the same instruments (<c>provider.id</c> = <c>ocpp</c>).
 /// </summary>
-internal sealed class ProviderMetrics
+public sealed class ProviderMetrics
 {
     /// <summary>The meter's name.</summary>
     public const string MeterName = "CheapHours.Providers";
@@ -18,15 +19,23 @@ internal sealed class ProviderMetrics
     /// <summary>The call duration histogram's name (seconds).</summary>
     public const string DurationName = "cheaphours.provider.request.duration";
 
+    /// <summary>The circuit-breaker state gauge's name (0 closed, 1 half-open, 2 open).</summary>
+    public const string CircuitStateName = "cheaphours.provider.circuit.state";
+
     private readonly Counter<long> _requests;
     private readonly Histogram<double> _duration;
 
-    public ProviderMetrics(IMeterFactory meters)
+    /// <summary>Creates the instruments on the process's <c>CheapHours.Providers</c> meter.</summary>
+    /// <param name="meters">The meter factory.</param>
+    /// <param name="circuits">The breaker state of every HTTP provider, reported by the gauge.</param>
+    public ProviderMetrics(IMeterFactory meters, ProviderCircuitStates circuits)
     {
         ArgumentNullException.ThrowIfNull(meters);
+        ArgumentNullException.ThrowIfNull(circuits);
         var meter = meters.Create(MeterName);
         _requests = meter.CreateCounter<long>(RequestsName, unit: "{request}", description: "Vendor calls by provider and outcome.");
         _duration = meter.CreateHistogram<double>(DurationName, unit: "s", description: "Duration of vendor calls, including retries.");
+        meter.CreateObservableGauge(CircuitStateName, circuits.Observe, unit: "{state}", description: "Circuit breaker of each HTTP provider: 0 closed, 1 half-open, 2 open.");
     }
 
     /// <summary>The outcome tag for a call.</summary>

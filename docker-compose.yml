@@ -1,7 +1,7 @@
 # Local development stack: MongoDB (single-node replica set), RabbitMQ, an OCPP 1.6 charge-point
 # simulator that connects to the gateway running on this machine (dotnet run ... --role gateway), a
-# car-cloud simulator that the worker polls (dotnet run ... --role worker), and a heat-pump-cloud simulator
-# that posts signed webhooks to the gateway.
+# car-cloud simulator that the worker polls (dotnet run ... --role worker), a heat-pump-cloud simulator
+# that posts signed webhooks to the gateway, and the Aspire dashboard that shows what the roles export.
 # Copy .env.example to .env first; see README "Run locally".
 name: cheaphours
 
@@ -113,6 +113,19 @@ services:
       retries: 5
       start_period: 15s
       start_interval: 2s
+
+  dashboard:
+    # The standalone Aspire dashboard: traces, metrics and logs the three roles export over OTLP when started
+    # with OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 (README "Observe a command"). Local only: no login,
+    # bound to loopback, never deployed. The image has no shell, so it declares no health check.
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:13.6.1
+    environment:
+      DASHBOARD__FRONTEND__AUTHMODE: Unsecured
+      DASHBOARD__OTLP__AUTHMODE: Unsecured
+    ports:
+      - "127.0.0.1:18888:18888" # UI
+      - "127.0.0.1:4317:18889" # OTLP gRPC
+      - "127.0.0.1:4318:18890" # OTLP HTTP
 
 volumes:
   mongo-data:

@@ -22,6 +22,7 @@ internal sealed partial class OutboxRelay(
     IOutboxStore outbox,
     ICommandStore commands,
     IMessagePublisher publisher,
+    CommandMetrics metrics,
     WorkerState state,
     IOptions<CommandsOptions> options,
     IConfiguration configuration,
@@ -43,7 +44,12 @@ internal sealed partial class OutboxRelay(
     public async Task<RelayRun> RunOnceAsync(CancellationToken cancellationToken)
     {
         var run = new RelayRun();
-        await LeasedRun.RunAsync(lease, _holder, LeaseDuration, time, ct => PublishDueAsync(run, ct), cancellationToken).ConfigureAwait(false);
+        if (!await LeasedRun.RunAsync(lease, _holder, LeaseDuration, time, ct => PublishDueAsync(run, ct), cancellationToken).ConfigureAwait(false))
+        {
+            // Another replica relays and reports the lag.
+            metrics.OutboxLag(null);
+        }
+
         return run;
     }
 
@@ -80,7 +86,11 @@ internal sealed partial class OutboxRelay(
 
     private async Task PublishDueAsync(RelayRun run, CancellationToken cancellationToken)
     {
-        var due = await outbox.ListDueAsync(time.GetUtcNow(), _options.RelayBatchSize, cancellationToken).ConfigureAwait(false);
+        var listedAt = time.GetUtcNow();
+        var due = await outbox.ListDueAsync(listedAt, _options.RelayBatchSize, cancellationToken).ConfigureAwait(false);
+
+        // The listing is oldest-due first, so its first entry gives the lag; no extra query.
+        metrics.OutboxLag(due.Count > 0 ? listedAt - due[0].AvailableAt : TimeSpan.Zero);
         foreach (var entry in due)
         {
             try

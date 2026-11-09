@@ -1,4 +1,6 @@
 using CheapHours.Core.Goals;
+using CheapHours.Host.Commands;
+using CheapHours.Host.Observability;
 using CheapHours.Host.Prices;
 using CheapHours.Messaging;
 using CheapHours.Messaging.Contracts;
@@ -20,6 +22,7 @@ internal sealed partial class PricesPublishedHandler(
     GoalPlanningService planning,
     IOptions<PricesOptions> pricesOptions,
     IOptions<PlannerOptions> plannerOptions,
+    MessagingTopology topology,
     TimeProvider time,
     ILogger<PricesPublishedHandler> logger) : IBatchHandler<PricesPublished>
 {
@@ -29,8 +32,11 @@ internal sealed partial class PricesPublishedHandler(
         ArgumentNullException.ThrowIfNull(batch);
         try
         {
-            foreach (var (zone, day) in batch.Select(d => (d.Message.Zone, d.Message.DeliveryDay)).Distinct())
+            // One pass per zone and day, in the trace of the import run that announced it.
+            foreach (var message in batch.Select(d => d.Message).DistinctBy(m => (m.Zone, m.DeliveryDay)))
             {
+                var (zone, day) = (message.Zone, message.DeliveryDay);
+                using var process = MessagingTracing.StartProcess(topology.Planner.Main, message);
                 if (!string.Equals(zone, pricesOptions.Value.Zone, StringComparison.Ordinal))
                 {
                     LogOtherZone(zone);
@@ -44,7 +50,11 @@ internal sealed partial class PricesPublishedHandler(
                 var added = 0;
                 foreach (var goal in open)
                 {
-                    if (await planning.ReplanAsync(goal, PlanReason.PricesPublished, reportedSocPercent: null, cancellationToken).ConfigureAwait(false) is ReplanOutcome.Added)
+                    using var span = CheapHoursDiagnostics.Jobs.StartActivity("goal replan");
+                    span?.SetTag("cheaphours.goal.id", goal.Goal.Id.Value);
+                    var outcome = await planning.ReplanAsync(goal, PlanReason.PricesPublished, reportedSocPercent: null, cancellationToken).ConfigureAwait(false);
+                    span?.SetTag(CommandTracing.OutcomeTag, outcome.GetType().Name);
+                    if (outcome is ReplanOutcome.Added)
                     {
                         added++;
                     }

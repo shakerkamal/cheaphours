@@ -1,7 +1,9 @@
 using CheapHours.Core.Commands;
+using CheapHours.Host.Observability;
 using CheapHours.Messaging;
 using CheapHours.Messaging.Contracts;
 using CheapHours.Persistence.Commands;
+using CheapHours.Providers.Ocpp;
 
 namespace CheapHours.Host.Commands;
 
@@ -14,6 +16,8 @@ namespace CheapHours.Host.Commands;
 internal sealed partial class CommandResultConsumer(
     ICommandStore commands,
     CommandOutcomes outcomes,
+    CommandMetrics metrics,
+    MessagingTopology topology,
     ILogger<CommandResultConsumer> logger) : IBatchHandler<GatewayCommandResult>
 {
     /// <inheritdoc/>
@@ -24,7 +28,17 @@ internal sealed partial class CommandResultConsumer(
         {
             foreach (var delivered in batch)
             {
-                await ApplyAsync(delivered.Message, cancellationToken).ConfigureAwait(false);
+                // A result carries its command's trace context, so applying it joins the command's trace.
+                using var process = MessagingTracing.StartProcess(topology.CommandResults.Main, delivered.Message);
+                try
+                {
+                    await ApplyAsync(delivered.Message, cancellationToken).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    process.Fail(ex);
+                    throw;
+                }
             }
         }
         catch (Exception ex) when (CommandStoreOutage.Is(ex))
@@ -43,6 +57,8 @@ internal sealed partial class CommandResultConsumer(
                 return;
             }
 
+            // Gateway results exist only for OCPP chargers (D1): the gateway route reaches nothing else.
+            using var scope = LogScopes.ForCommand(logger, stored.Id, stored.Command.Request.DeviceId, OcppProvider.Id);
             if (stored.Command.State != CommandState.Published)
             {
                 LogNotPublished(result.CommandId.Value, stored.Command.State);
@@ -56,6 +72,7 @@ internal sealed partial class CommandResultConsumer(
             if (await commands.SaveAsync(applied, cancellationToken).ConfigureAwait(false) is { } saved)
             {
                 LogApplied(saved.Id.Value, saved.Command.State);
+                metrics.DeadLettered(saved, OcppProvider.Id, CommandMetrics.AttemptsExhausted);
                 return;
             }
         }

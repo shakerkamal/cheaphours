@@ -14,6 +14,7 @@ the old one.
 | [006](006-ocpp-16j-smart-charging-messages.md) | The OCPP 1.6J messages smart charging needs | Accepted |
 | 007 | The agent changes devices only through confirmed plans | Planned |
 | [008](008-gateway-command-routing.md) | Gateway command routing through per-replica queues | Accepted |
+| [009](009-opentelemetry-and-trace-propagation.md) | OpenTelemetry tracing; messages keep the trace they were created in | Accepted |
 
 ## Template
 

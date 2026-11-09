@@ -76,13 +76,17 @@ public sealed class ApiKeyTests(MongoFixture mongo)
         Assert.NotEqual(HttpStatusCode.Unauthorized, await StatusAsync(restarted, key));
     }
 
+    // structured-logging: "Rejected API key". Neither the presented key nor its hash is logged.
     [Fact]
-    public async Task Unknown_key_gets_401()
+    public async Task Unknown_key_gets_401_and_is_never_logged()
     {
+        const string Presented = "ch_it_key_nobody_stored";
         await using var api = new ApiFactory(mongo.ConnectionString);
         await api.StartAsync();
 
-        Assert.Equal(HttpStatusCode.Unauthorized, await StatusAsync(api, "ch_it_key_nobody_stored"));
+        Assert.Equal(HttpStatusCode.Unauthorized, await StatusAsync(api, Presented));
+        Assert.NotEmpty(api.Logs.Lines);
+        Assert.DoesNotContain(api.Logs.Lines, l => l.Contains(Presented, StringComparison.Ordinal) || l.Contains(ApiFactory.Hash(Presented), StringComparison.Ordinal));
     }
 
     [Fact]

@@ -1,6 +1,7 @@
 using System.Globalization;
 using CheapHours.Core.Devices;
 using CheapHours.Core.Ids;
+using CheapHours.Host.Observability;
 using CheapHours.Persistence.Devices;
 
 namespace CheapHours.Host.Devices;
@@ -40,6 +41,8 @@ internal sealed partial class DeviceEventIngestor(IDeviceStateStore devices, Dev
 
         foreach (var (externalId, group) in Group(providerId, events))
         {
+            // Every log entry about this device's events names it.
+            using var scope = LogScopes.ForDevice(logger, providerId, externalId);
             var deviceId = await DeviceIdAsync(providerId, capabilities, owner, reportInterval, externalId, group, cancellationToken).ConfigureAwait(false);
             if (deviceId is null)
             {

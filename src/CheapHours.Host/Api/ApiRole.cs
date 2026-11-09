@@ -4,6 +4,7 @@ using CheapHours.Host.Api.Idempotency;
 using CheapHours.Host.Api.OpenApi;
 using CheapHours.Host.Goals;
 using CheapHours.Host.Health;
+using CheapHours.Host.Observability;
 using CheapHours.Messaging.Contracts.Json;
 using CheapHours.Persistence;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
@@ -26,6 +27,7 @@ internal static class ApiRole
     public static WebApplication Build(string[] args)
     {
         var builder = WebApplication.CreateBuilder(args);
+        builder.AddCheapHoursObservability(HostRole.Api, ObservabilitySetup.InstanceId(HostRole.Api, builder.Configuration));
 
         builder.Services.ConfigureHttpJsonOptions(options => CheapHoursJson.Configure(options.SerializerOptions));
         builder.Services.AddCheapHoursProblemDetails();

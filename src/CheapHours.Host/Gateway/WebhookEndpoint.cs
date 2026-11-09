@@ -1,5 +1,6 @@
 using CheapHours.Core.Devices;
 using CheapHours.Host.Devices;
+using CheapHours.Host.Observability;
 using CheapHours.Messaging;
 using CheapHours.Providers.Kit;
 using MongoDB.Driver;
@@ -49,6 +50,9 @@ internal static partial class WebhookEndpoint
             context.Response.StatusCode = StatusCodes.Status404NotFound;
             return;
         }
+
+        // From here every log entry names the (registered) provider; the ingestor adds each device's id.
+        using var scope = LogScopes.ForDevice(logger, verifier.ProviderId, externalId: null);
 
         // 3. At most 64 KB, by header and while reading.
         var body = await ReadBodyAsync(context.Request, context.RequestAborted).ConfigureAwait(false);
