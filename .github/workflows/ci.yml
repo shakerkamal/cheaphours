@@ -1,0 +1,262 @@
+# Every pull request, every push to main and every v* tag: lint, build, the whole test suite on Linux, the dashboard
+# on Node 22 and 24, the image built, smoke-checked and scanned. Only after all of that, and only for main or a v*
+# tag, the image is pushed to GHCR with an SBOM and a signed provenance attestation (ADR-010).
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+# The default token reads the repository and nothing else; jobs that need more say so.
+permissions:
+  contents: read
+
+# A new push to a pull request cancels its previous run; runs for main and tags queue, so a publish is never cut short.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  DOTNET_NOLOGO: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+  ACTIONLINT_IMAGE: rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+  HADOLINT_IMAGE: hadolint/hadolint:v2.15.1@sha256:32dac94127fd60b7b7e3fbfc65e1383b9b5e25c9bfd7b8536de7a539fe68a12d
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Workflows (actionlint)
+        run: docker run --rm -v "$PWD:/repo" -w /repo "$ACTIONLINT_IMAGE" -color
+
+      - name: Dockerfiles (hadolint)
+        run: |
+          status=0
+          while IFS= read -r dockerfile; do
+            echo "hadolint $dockerfile"
+            docker run --rm -i "$HADOLINT_IMAGE" < "$dockerfile" || status=1
+          done < <(git ls-files '*Dockerfile')
+          exit "$status"
+
+      - name: Compose file with .env.example
+        run: |
+          # The secrets .env.example leaves empty get throwaway values for this run only.
+          while IFS= read -r line; do
+            if [[ "$line" =~ ^([A-Z0-9_]+)=$ ]]; then
+              echo "${BASH_REMATCH[1]}=$(openssl rand -hex 32)"
+            else
+              echo "$line"
+            fi
+          done < .env.example > .env
+          docker compose config --quiet
+
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+
+      - name: Restore (locked, audited)
+        run: dotnet restore --locked-mode
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Unit, property, architecture, API and contract tests
+        run: |
+          # Every project runs even when one fails, so every result is kept.
+          status=0
+          for project in UnitTests ArchitectureTests ApiTests ContractTests; do
+            dotnet test --project "tests/CheapHours.$project" --configuration Release --no-build \
+              --results-directory "$GITHUB_WORKSPACE/TestResults/$project" --report-xunit-trx || status=1
+          done
+          exit "$status"
+
+      - name: Keep test results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-results
+          path: TestResults/
+          retention-days: 14
+          if-no-files-found: warn
+
+  integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+
+      - name: Restore (locked, audited)
+        run: dotnet restore --locked-mode
+
+      - name: Build
+        run: dotnet build --no-restore --configuration Release
+
+      - name: Integration and fault tests (Testcontainers on the runner's Docker)
+        run: |
+          dotnet test --project tests/CheapHours.IntegrationTests --configuration Release --no-build \
+            --results-directory "$GITHUB_WORKSPACE/TestResults/IntegrationTests" --report-xunit-trx
+
+      - name: Keep test results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: integration-test-results
+          path: TestResults/
+          retention-days: 14
+          if-no-files-found: warn
+
+  dashboard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Dashboard tests
+        run: node --test "dashboard/test/*.test.mjs"
+
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write # the Trivy results in code scanning
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build (linux/amd64)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: src/CheapHours.Host/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: cheaphours:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke checks
+        run: bash scripts/ci/image-smoke.sh cheaphours:ci
+
+      - name: Scan (Trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: v0.76.2
+          image-ref: cheaphours:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          limit-severities-for-sarif: true
+          format: sarif
+          output: trivy.sarif
+          exit-code: '1'
+
+      - name: Show the scan in code scanning
+        # Also when the scan failed; a fork's read-only token cannot upload, so forks skip this step.
+        if: >-
+          always() && hashFiles('trivy.sarif') != '' &&
+          (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: trivy.sarif
+          category: trivy
+
+  publish:
+    # Nothing ships red: every check of this run passed, and only pushes to main or a v* tag publish.
+    needs: [lint, test, integration, dashboard, image]
+    if: >-
+      github.event_name == 'push' &&
+      (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write # push to GHCR
+      id-token: write # sign the attestation with the run's OIDC identity
+      attestations: write # store the attestation
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/cheaphours
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tags and labels
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: latest=false
+          tags: |
+            type=sha,prefix=sha-,format=short
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Build (linux/amd64, linux/arm64) and push
+        id: push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: src/CheapHours.Host/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: mode=max
+          sbom: true
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true

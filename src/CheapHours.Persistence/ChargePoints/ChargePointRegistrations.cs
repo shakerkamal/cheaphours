@@ -31,15 +31,34 @@ public sealed class ChargePointRegistrations(IMongoDatabase database) : IChargeP
     public Task SeedAsync(ChargePointRegistration registration, DateTimeOffset now, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(registration);
+        return SeedAsync([registration], now, cancellationToken);
+    }
 
-        var update = Update
-            .Set(d => d.OwnerId, registration.OwnerId.Value)
-            .Set(d => d.PasswordHash, registration.PasswordHash)
-            .Set(d => d.MaxPowerW, registration.MaxPowerW)
-            .Set(d => d.SchemaVersion, 1)
-            .SetOnInsert(d => d.CreatedAt, UtcTime.ToBson(now));
+    /// <inheritdoc/>
+    public async Task SeedAsync(IReadOnlyCollection<ChargePointRegistration> registrations, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(registrations);
+        if (registrations.Count == 0)
+        {
+            return;
+        }
 
-        return _collection.UpdateOneAsync(d => d.Id == registration.ChargePointId, update, new UpdateOptions { IsUpsert = true }, cancellationToken);
+        // Ordered, so a repeated id ends as its last entry, exactly as one upsert after another would.
+        var upserts = registrations
+            .Select(registration => new UpdateOneModel<ChargePointDocument>(
+                Builders<ChargePointDocument>.Filter.Eq(d => d.Id, registration.ChargePointId),
+                Update
+                    .Set(d => d.OwnerId, registration.OwnerId.Value)
+                    .Set(d => d.PasswordHash, registration.PasswordHash)
+                    .Set(d => d.MaxPowerW, registration.MaxPowerW)
+                    .Set(d => d.SchemaVersion, 1)
+                    .SetOnInsert(d => d.CreatedAt, UtcTime.ToBson(now)))
+            {
+                IsUpsert = true,
+            })
+            .ToList();
+
+        await _collection.BulkWriteAsync(upserts, new BulkWriteOptions { IsOrdered = true }, cancellationToken).ConfigureAwait(false);
     }
 
     /// <inheritdoc/>

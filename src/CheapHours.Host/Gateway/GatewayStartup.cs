@@ -43,11 +43,10 @@ internal sealed partial class GatewayStartup(
             try
             {
                 await MongoIndexes.EnsureAsync(database, stoppingToken).ConfigureAwait(false);
-                foreach (var cp in options.Value.ChargePoints)
-                {
-                    var registration = new ChargePointRegistration(cp.Id, OwnerId.Parse(cp.OwnerId), cp.PasswordHash.ToLowerInvariant(), cp.MaxPowerW);
-                    await registrations.SeedAsync(registration, time.GetUtcNow(), stoppingToken).ConfigureAwait(false);
-                }
+                var configured = options.Value.ChargePoints
+                    .Select(cp => new ChargePointRegistration(cp.Id, OwnerId.Parse(cp.OwnerId), cp.PasswordHash.ToLowerInvariant(), cp.MaxPowerW))
+                    .ToArray();
+                await registrations.SeedAsync(configured, time.GetUtcNow(), stoppingToken).ConfigureAwait(false);
 
                 var connection = await broker.ConnectAsync(stoppingToken).ConfigureAwait(false);
                 await TopologyDeclarer.DeclareAsync(connection, topology, stoppingToken).ConfigureAwait(false);

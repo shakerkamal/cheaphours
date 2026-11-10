@@ -15,6 +15,7 @@ RUN tar xzf /tmp/vcp.tar.gz --strip-components=1 \
 
 COPY --chmod=755 run.sh /usr/local/bin/run-simulator
 
-USER node
+# The image's node user, by id so a runtime can check it is not root.
+USER 1000:1000
 ENV ADMIN_PORT=9999
 CMD ["run-simulator"]

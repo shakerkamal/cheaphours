@@ -19,6 +19,16 @@ public interface IChargePointRegistrations
     /// <returns>A task that completes when the registration is stored.</returns>
     Task SeedAsync(ChargePointRegistration registration, DateTimeOffset now, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Seeds every registration as <see cref="SeedAsync(ChargePointRegistration, DateTimeOffset, CancellationToken)"/>
+    /// does, in one round trip (so startup does not grow with the number of chargers); nothing is sent for none.
+    /// </summary>
+    /// <param name="registrations">The configured registrations; a later one wins when an id repeats.</param>
+    /// <param name="now">The current time (UTC), stored as <c>createdAt</c> on insert.</param>
+    /// <param name="cancellationToken">Cancels the operation.</param>
+    /// <returns>A task that completes when every registration is stored.</returns>
+    Task SeedAsync(IReadOnlyCollection<ChargePointRegistration> registrations, DateTimeOffset now, CancellationToken cancellationToken);
+
     /// <summary>Blocks a charger; the row is kept.</summary>
     /// <param name="chargePointId">The charge point id.</param>
     /// <param name="at">When it was revoked (UTC).</param>

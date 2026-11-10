@@ -3,6 +3,7 @@ using CheapHours.IntegrationTests.Infrastructure;
 using CheapHours.Persistence;
 using CheapHours.Persistence.ChargePoints;
 using MongoDB.Bson;
+using MongoDB.Driver.Core.Events;
 
 namespace CheapHours.IntegrationTests.Persistence;
 
@@ -62,6 +63,49 @@ public sealed class ChargePointRegistrationsTests(MongoFixture mongo)
         var found = await Store.FindAsync("CP002", ct);
         Assert.True(found!.IsRevoked);
         Assert.Equal(Day1.AddHours(1), found.RevokedAt);
+    }
+
+    [Fact]
+    public async Task Seeding_many_is_one_round_trip_with_the_same_rules()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await Store.SeedAsync(Registration("CP010"), Day1, ct);
+        await Store.RevokeAsync("CP010", Day1.AddHours(1), ct);
+        var registrations = Enumerable.Range(10, 50).Select(i => Registration($"CP{i:000}", hash: HashB)).ToArray();
+
+        var updates = 0;
+        var settings = MongoClientSettings.FromConnectionString(mongo.ConnectionString);
+        settings.ClusterConfigurator = cluster => cluster.Subscribe<CommandStartedEvent>(e =>
+        {
+            if (e.CommandName == "update")
+            {
+                Interlocked.Increment(ref updates);
+            }
+        });
+        using var counting = new MongoClient(settings);
+        var store = new ChargePointRegistrations(counting.GetDatabase(_database.DatabaseNamespace.DatabaseName));
+
+        await store.SeedAsync(registrations, Day1.AddDays(1), ct);
+
+        Assert.Equal(1, updates);
+        Assert.Equal(50, await _database.GetCollection<BsonDocument>(MongoIndexes.ChargePoints).CountDocumentsAsync(FilterDefinition<BsonDocument>.Empty, cancellationToken: ct));
+        var existing = await Store.FindAsync("CP010", ct);
+        Assert.Equal(Day1, existing!.CreatedAt);
+        Assert.Equal(Day1.AddHours(1), existing.RevokedAt);
+        Assert.Equal(HashB, existing.PasswordHash);
+        var added = await Store.FindAsync("CP059", ct);
+        Assert.Equal(Day1.AddDays(1), added!.CreatedAt);
+        Assert.False(added.IsRevoked);
+    }
+
+    [Fact]
+    public async Task Seeding_none_sends_nothing()
+    {
+        var ct = TestContext.Current.CancellationToken;
+
+        await Store.SeedAsync([], Day1, ct);
+
+        Assert.Equal(0, await _database.GetCollection<BsonDocument>(MongoIndexes.ChargePoints).CountDocumentsAsync(FilterDefinition<BsonDocument>.Empty, cancellationToken: ct));
     }
 
     [Fact]
