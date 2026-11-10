@@ -55,6 +55,17 @@ public sealed class HeatPumpCloudSimulatorTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task The_delivery_schedule_exists_once_the_simulator_has_started()
+    {
+        // BackgroundService runs ExecuteAsync on the thread pool, so a timer created there may not exist yet when a
+        // test advances the fake clock; the schedule must be in place when StartAsync returns.
+        var clock = new CountingTimeProvider(new FakeTimeProvider(Start));
+        await using var sim = await HeatPumpSimulatorHost.StartAsync(clock, handler: new RecordingHandler());
+
+        Assert.Equal(1, clock.TimersCreated);
+    }
+
+    [Fact]
     public async Task A_delivery_is_signed_so_a_receiver_that_knows_the_secret_computes_the_same_signature()
     {
         var received = await FirstDeliveryAsync();

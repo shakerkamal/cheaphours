@@ -27,7 +27,7 @@ public sealed class ConsumerOutageTests(RabbitMqFixture rabbit)
 
         // A MongoDB of its own, on a fixed port so it comes back at the same address after a stop.
         var port = FreePort();
-        await using var mongo = new MongoDbBuilder(MongoFixture.Image).WithReplicaSet().WithPortBinding(port, 27017).Build();
+        await using var mongo = MongoFixture.NewContainerBuilder().WithPortBinding(port, 27017).Build();
         await mongo.StartAsync(ct);
         var settings = MongoClientSettings.FromConnectionString(mongo.GetConnectionString());
         settings.ServerSelectionTimeout = TimeSpan.FromSeconds(2);

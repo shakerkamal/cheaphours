@@ -265,7 +265,7 @@ public sealed class GatewaySessionTests(MongoFixture mongo) : IAsyncLifetime
     [Fact]
     public async Task Database_failure_during_boot_is_an_internal_error_without_details()
     {
-        await using var container = new MongoDbBuilder(MongoFixture.Image).WithReplicaSet().Build();
+        await using var container = MongoFixture.NewContainerBuilder().Build();
         await container.StartAsync(TestContext.Current.CancellationToken);
         await using var gateway = new GatewayFactory(container.GetConnectionString(), overrides: new Dictionary<string, string?>
         {

@@ -423,6 +423,10 @@ then a pull request whose run is the pipeline's first proof, before `/opsx:archi
     `ContinuousIntegrationBuild` on GitHub Actions.
   - The gateway seeds its charger registrations in one ordered bulk write, so startup does not grow with the number
     of chargers (found under full-suite load, where one write took 300–700 ms).
+  - Found by the first pull-request run: every MongoDB test container comes from `MongoFixture.NewContainerBuilder()`,
+    which sets `GLIBC_TUNABLES=glibc.pthread.rseq=1`, because MongoDB 8 refuses to start on the runner's kernel 7.0
+    (SERVER-121912); and the heat-pump simulator creates its delivery timer in `StartAsync`, because .NET 10 runs
+    `BackgroundService.ExecuteAsync` on the thread pool and a test could advance the fake clock before the timer existed.
 - **ADRs:** 001 (modular monolith), 002 (time-series telemetry), 003 (RabbitMQ), 004 (own outbox and
   inbox), 005 (greedy cheapest-slot planner), 006 (OCPP 1.6J smart-charging messages), 008 (gateway command
   routing), 009 (OpenTelemetry; messages keep their trace context), 010 (images built only by CI, scanned, attested).
@@ -431,7 +435,7 @@ then a pull request whose run is the pipeline's first proof, before `/opsx:archi
   fault tests (`tests/CheapHours.IntegrationTests/Faults`): a worker stopped between save and publish, the
   broker stopped while three commands are accepted, a charger dropping mid-command and reconnecting
   `Available`; each command reaches its device exactly once.
-- **Tests:** 1779 green and 31 skipped by design (contract rules that do not fit a provider), plus 51 Node
+- **Tests:** 1780 green and 31 skipped by design (contract rules that do not fit a provider), plus 51 Node
   tests for the dashboard (`node --test "dashboard/test/*.test.mjs"`): unit,
   property, architecture, API contract, provider contract, and integration tests against a
   real MongoDB and RabbitMQ in Testcontainers, with a real gateway on Kestrel, a real worker host and
