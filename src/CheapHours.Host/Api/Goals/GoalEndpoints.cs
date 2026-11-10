@@ -108,6 +108,51 @@ internal static class GoalEndpoints
         };
     }
 
+    /// <summary><c>GET /v1/goals</c>: the owner's goals, newest first, each with its current plan's status.</summary>
+    /// <param name="cursor">The cursor from the previous page, if any.</param>
+    /// <param name="limit">The page size, if sent.</param>
+    /// <param name="user">The authenticated key.</param>
+    /// <param name="goals">The goal store.</param>
+    /// <param name="plans">The plan store.</param>
+    /// <param name="time">The clock, for a draft's expiry.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns>200 with a page, or 400.</returns>
+    public static async Task<IResult> ListAsync(
+        string? cursor,
+        int? limit,
+        ClaimsPrincipal user,
+        IGoalStore goals,
+        IPlanStore plans,
+        TimeProvider time,
+        CancellationToken cancellationToken)
+    {
+        var rules = new QueryRules();
+        var take = rules.Limit(limit);
+        var before = rules.GoalCursor(cursor);
+        if (!rules.IsValid)
+        {
+            return ErrorCatalogue.ValidationFailed(rules.Errors);
+        }
+
+        var owner = DeviceEndpoints.Owner(user);
+
+        // One extra row tells whether another page follows.
+        var rows = await goals.ListAsync(owner, before, take + 1, cancellationToken).ConfigureAwait(false);
+        var page = rows.Take(take).ToList();
+        var current = (await plans.GetCurrentManyAsync(owner, [.. page.Select(g => g.Goal.Id)], cancellationToken).ConfigureAwait(false))
+            .ToDictionary(p => p.Plan.GoalId);
+        var now = time.GetUtcNow();
+
+        // A goal and its first version are written in one transaction, so a goal without a plan is a bug.
+        var data = page.Select(g => PlanMapping.ToSummary(
+                g,
+                current.TryGetValue(g.Goal.Id, out var plan) ? plan : throw new InvalidOperationException($"Goal {g.Goal.Id} has no plan version."),
+                now))
+            .ToList();
+        var next = rows.Count > take ? PageCursor.ForGoal(page[^1].Goal.Id) : null;
+        return TypedResults.Ok(new Page<GoalSummaryDto>(data, next));
+    }
+
     /// <summary><c>GET /v1/goals/{id}/plan</c>: the goal's current plan version.</summary>
     /// <param name="id">The goal.</param>
     /// <param name="user">The authenticated key.</param>

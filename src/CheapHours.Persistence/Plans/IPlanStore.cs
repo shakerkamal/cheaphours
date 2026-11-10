@@ -18,6 +18,13 @@ public interface IPlanStore
     /// <returns>The current version, or <see langword="null"/> when the plan does not exist or belongs to another owner.</returns>
     Task<StoredPlan?> GetCurrentAsync(OwnerId ownerId, PlanId planId, CancellationToken cancellationToken);
 
+    /// <summary>Reads the current (highest) version of each of <paramref name="goalIds"/>' plans, in one query.</summary>
+    /// <param name="ownerId">The owner (D3); another owner's goals read nothing.</param>
+    /// <param name="goalIds">The goals.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>One version per goal that has a plan, in no particular order.</returns>
+    Task<IReadOnlyList<StoredPlan>> GetCurrentManyAsync(OwnerId ownerId, IReadOnlyCollection<GoalId> goalIds, CancellationToken cancellationToken);
+
     /// <summary>Reads the running version of <paramref name="goalId"/>'s plan: its highest <c>Confirmed</c> version.</summary>
     /// <param name="goalId">The goal.</param>
     /// <param name="cancellationToken">Cancels the read.</param>

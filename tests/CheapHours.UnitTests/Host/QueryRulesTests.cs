@@ -85,6 +85,20 @@ public sealed class QueryRulesTests
     }
 
     [Fact]
+    public void Goal_cursor_round_trips_and_garbage_is_refused()
+    {
+        var id = GoalId.Parse("goal_01JB7Z8K2Q");
+        var rules = new QueryRules();
+
+        Assert.Null(rules.GoalCursor(null));
+        Assert.Equal(id, rules.GoalCursor(PageCursor.ForGoal(id)));
+        Assert.True(rules.IsValid);
+
+        rules.GoalCursor(PageCursor.ForDevice(DeviceId.Parse("dev_1")));
+        Assert.True(rules.Errors.ContainsKey("cursor"));
+    }
+
+    [Fact]
     public void Telemetry_cursor_continues_at_the_next_slot()
     {
         var rules = new QueryRules();

@@ -324,6 +324,39 @@
         "pattern": "^goal_[A-Za-z0-9_-]{1,64}$",
         "type": "string"
       },
+      "GoalSummaryDto": {
+        "properties": {
+          "chargerDeviceId": {
+            "$ref": "#/components/schemas/DeviceId"
+          },
+          "currentPlan": {
+            "$ref": "#/components/schemas/PlanSummaryDto"
+          },
+          "departureAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "$ref": "#/components/schemas/GoalId"
+          },
+          "targetSocPercent": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "vehicleDeviceId": {
+            "$ref": "#/components/schemas/DeviceId"
+          }
+        },
+        "required": [
+          "id",
+          "vehicleDeviceId",
+          "chargerDeviceId",
+          "targetSocPercent",
+          "departureAt",
+          "currentPlan"
+        ],
+        "type": "object"
+      },
       "GoalUpdatedResponse": {
         "properties": {
           "goal": {
@@ -344,6 +377,27 @@
           "data": {
             "items": {
               "$ref": "#/components/schemas/DeviceDto"
+            },
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "type": "object"
+      },
+      "PageOfGoalSummaryDto": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/GoalSummaryDto"
             },
             "type": "array"
           },
@@ -530,6 +584,34 @@
           "Superseded",
           "Expired"
         ]
+      },
+      "PlanSummaryDto": {
+        "properties": {
+          "expiresAt": {
+            "format": "date-time",
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "id": {
+            "$ref": "#/components/schemas/PlanId"
+          },
+          "status": {
+            "$ref": "#/components/schemas/PlanStatus"
+          },
+          "version": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "status",
+          "expiresAt"
+        ],
+        "type": "object"
       },
       "PriceSlotDto": {
         "properties": {
@@ -1361,6 +1443,106 @@
       }
     },
     "/v1/goals": {
+      "get": {
+        "operationId": "ListGoals",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "cursor",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "format": "int32",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageOfGoalSummaryDto"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`validation`: The request is malformed."
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`unauthorized`: A valid API key is required."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`forbidden`: The API key lacks the required scope."
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`rate-limited`: Too many requests.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetails"
+                }
+              }
+            },
+            "description": "`internal`: An unexpected error occurred."
+          }
+        },
+        "security": [
+          {
+            "ApiKey": []
+          }
+        ],
+        "summary": "List goals, newest first, with their current plan's status.",
+        "tags": [
+          "Goals and plans"
+        ],
+        "x-required-scope": "read"
+      },
       "post": {
         "operationId": "CreateGoal",
         "parameters": [

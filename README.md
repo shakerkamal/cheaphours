@@ -19,15 +19,18 @@ are never lost and never applied twice.
 - .NET SDK 10.0.401 (pinned in `global.json`)
 - Docker (Docker Desktop on Windows or macOS) for the local stack and the integration tests; `dotnet test`
   needs a running Docker engine
+- Node.js 22 or later, only to run the dashboard's tests (no packages to install)
 
 ## Build and test
 
 ```sh
 dotnet build
 dotnet test
+node --test "dashboard/test/*.test.mjs"
 ```
 
-The build treats every warning as an error. Tests run on Microsoft.Testing.Platform (xUnit v3).
+The build treats every warning as an error. Tests run on Microsoft.Testing.Platform (xUnit v3). The dashboard's
+logic is tested with Node's built-in test runner.
 
 ## Run
 
@@ -42,8 +45,10 @@ dotnet run --project src/CheapHours.Host -- --role worker
 ## Run locally
 
 The local stack is MongoDB (a single-node replica set), RabbitMQ, an OCPP 1.6 charge-point simulator, a
-car-cloud simulator and a heat-pump-cloud simulator. The charge point connects to the gateway running on
-your machine, the worker polls the car cloud, and the heat-pump cloud posts signed webhooks to the gateway.
+car-cloud simulator, a heat-pump-cloud simulator, the owner dashboard's web server and the telemetry
+dashboard. The charge point connects to the gateway running on your machine, the worker polls the car cloud,
+the heat-pump cloud posts signed webhooks to the gateway, and the web server forwards the dashboard's `/v1`
+calls to the API.
 
 1. **Make a charger password.** It is 20 random bytes written as 40 hex characters. Print it and its
    SHA-256:
@@ -137,7 +142,7 @@ your machine, the worker polls the car cloud, and the heat-pump cloud posts sign
    posts to `http://host.docker.internal:5081/webhooks/heatpumpcloud/acct_demo` every 15 seconds, so
    the report interval matches; it defaults to one minute.
 
-7. **Start the stack** and wait until the five services with a health check are healthy (the telemetry
+7. **Start the stack** and wait until the six services with a health check are healthy (the telemetry
    dashboard has none; it just runs):
 
    ```sh
@@ -348,6 +353,27 @@ your machine, the worker polls the car cloud, and the heat-pump cloud posts sign
       `cheaphours.telemetry.readings`, each tagged by provider, never by device.
 
     Outside Development the console logs are one JSON object per line, with the trace and span ids.
+
+18. **Open the dashboard.** With the stack up (step 7) and the three roles running (step 8, the API on
+    `--urls http://localhost:5080`), open <http://localhost:5070>. The `web` service serves the page and
+    forwards every `/v1` request to the API, so the page and the API share one origin. Enter a key: it stays
+    in that browser tab only and travels only in the `X-Api-Key` header. The page shows the devices, today's
+    and tomorrow's prices (Berlin days), the goals with a form to set one, a goal's plan on the prices, and
+    the savings of the last 30 days.
+
+    Everything but confirming works with a `read` key. To see that, add a `read`-only key next to the demo
+    key (make it like the demo key in step 4, then restart the API):
+
+    ```sh
+    dotnet user-secrets --project src/CheapHours.Host set "ApiKeys:Keys:1:Name" demo-read
+    dotnet user-secrets --project src/CheapHours.Host set "ApiKeys:Keys:1:Hash" <hash of the read key>
+    dotnet user-secrets --project src/CheapHours.Host set "ApiKeys:Keys:1:Owner" own_demo
+    dotnet user-secrets --project src/CheapHours.Host set "ApiKeys:Keys:1:Scopes:0" read
+    ```
+
+    With the `read` key, confirming a draft says an `execute` key is needed and the plan stays a draft.
+    "Forget key" removes it; with the demo key, confirming lists the new commands and follows each one until
+    it is final. With the API stopped, each section says the API is unreachable.
 
 `docker compose down -v` stops everything and deletes the local data.
 

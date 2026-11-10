@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>CheapHours</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="js/app.mjs"></script>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">⚡</span>
+      <div>
+        <h1>CheapHours</h1>
+        <p class="tagline">Charging in the cheapest quarter hours. All times are Europe/Berlin.</p>
+      </div>
+    </div>
+    <div class="top-actions" id="key-actions" hidden>
+      <button type="button" id="refresh" class="secondary">Refresh</button>
+      <button type="button" id="forget-key" class="secondary">Forget key</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="key-section" class="card key-card" aria-labelledby="key-heading">
+      <h2 id="key-heading">API key</h2>
+      <p>Enter a CheapHours API key. It is kept only for this browser tab and sent only in the
+        <code>X-Api-Key</code> header. A <code>read</code> key shows everything; confirming a plan needs an
+        <code>execute</code> key.</p>
+      <form id="key-form" autocomplete="off">
+        <label for="api-key">API key</label>
+        <div class="inline">
+          <input id="api-key" name="apiKey" type="password" required spellcheck="false" autocomplete="off">
+          <button type="submit">Use key</button>
+        </div>
+        <p id="key-message" class="message" role="status"></p>
+      </form>
+    </section>
+
+    <div id="dashboard" hidden>
+      <section id="devices" class="card" aria-labelledby="devices-heading">
+        <h2 id="devices-heading">Devices</h2>
+        <div id="devices-status" class="status" role="status"></div>
+        <div id="devices-content"></div>
+      </section>
+
+      <section id="prices" class="card" aria-labelledby="prices-heading">
+        <h2 id="prices-heading">Day-ahead prices <span class="muted">Germany, per quarter hour, before grid fees and taxes</span></h2>
+        <div id="prices-status" class="status" role="status"></div>
+        <div id="prices-content" class="price-days"></div>
+      </section>
+
+      <section id="goals" class="card" aria-labelledby="goals-heading">
+        <h2 id="goals-heading">Goals</h2>
+        <div id="goals-status" class="status" role="status"></div>
+        <div id="goals-content"></div>
+
+        <form id="goal-form" class="goal-form" novalidate>
+          <h3>Set a goal</h3>
+          <div class="fields">
+            <div class="field">
+              <label for="goal-vehicle">Vehicle</label>
+              <select id="goal-vehicle" name="vehicleDeviceId" aria-describedby="goal-vehicle-error"></select>
+              <p id="goal-vehicle-error" class="field-error"></p>
+            </div>
+            <div class="field">
+              <label for="goal-charger">Charger</label>
+              <select id="goal-charger" name="chargerDeviceId" aria-describedby="goal-charger-error"></select>
+              <p id="goal-charger-error" class="field-error"></p>
+            </div>
+            <div class="field">
+              <label for="goal-target">Target charge (%)</label>
+              <input id="goal-target" name="targetSocPercent" type="number" min="1" max="100" step="1" value="80" aria-describedby="goal-target-error">
+              <p id="goal-target-error" class="field-error"></p>
+            </div>
+            <div class="field">
+              <label for="goal-departure">Departure (Berlin time)</label>
+              <input id="goal-departure" name="departureLocal" type="datetime-local" aria-describedby="goal-departure-error">
+              <p id="goal-departure-error" class="field-error"></p>
+            </div>
+          </div>
+          <button type="submit" id="goal-submit">Set goal</button>
+          <div id="goal-message" class="message" role="status"></div>
+        </form>
+      </section>
+
+      <section id="plan" class="card" aria-labelledby="plan-heading">
+        <h2 id="plan-heading">Plan</h2>
+        <div id="plan-status" class="status" role="status"></div>
+        <div id="plan-content"><p class="muted">Choose a goal to see its plan.</p></div>
+      </section>
+
+      <section id="savings" class="card" aria-labelledby="savings-heading">
+        <h2 id="savings-heading">Savings <span class="muted">last 30 days</span></h2>
+        <div id="savings-status" class="status" role="status"></div>
+        <div id="savings-content"></div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="foot">
+    <p>Uses only the public <code>/v1</code> API. Price data: Energy-Charts, Fraunhofer ISE, CC BY 4.0 (from
+      Bundesnetzagentur | SMARD.de).</p>
+  </footer>
+</body>
+</html>

@@ -13,6 +13,7 @@ public sealed class EndpointTests(ApiFactory factory) : IClassFixture<ApiFactory
         { "GET", "/v1/devices/dev_wallbox_01", null },
         { "GET", $"/v1/devices/dev_wallbox_01/telemetry?{Range}&resolution=15m", null },
         { "GET", $"/v1/prices?zone=DE-LU&{Range}", null },
+        { "GET", "/v1/goals", null },
         { "POST", "/v1/goals", """{"vehicleDeviceId":"dev_car_01","chargerDeviceId":"dev_wallbox_01","targetSocPercent":80,"departureAt":"2026-10-17T05:00:00Z"}""" },
         { "PATCH", "/v1/goals/goal_1", """{"targetSocPercent":90}""" },
         { "GET", "/v1/goals/goal_1/plan", null },

@@ -218,6 +218,23 @@ public sealed class GoalStore(IMongoDatabase database) : IGoalStore
     }
 
     /// <inheritdoc/>
+    public async Task<IReadOnlyList<StoredGoal>> ListAsync(OwnerId ownerId, GoalId? before, int take, CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(take);
+        var filter = Filter.Eq(d => d.OwnerId, ownerId.Value);
+        if (before is { } below)
+        {
+            filter &= Filter.Lt(d => d.Id, below.Value);
+        }
+
+        var documents = await _goals.Find(filter)
+            .SortByDescending(d => d.Id)
+            .Limit(take)
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+        return [.. documents.Select(ToStored)];
+    }
+
+    /// <inheritdoc/>
     public async Task<IReadOnlyList<StoredGoal>> ListOpenAsync(DateTimeOffset departingAfter, CancellationToken cancellationToken)
     {
         var documents = await _goals.Find(Filter.Gt(d => d.DepartureAt, UtcTime.ToBson(departingAfter)))

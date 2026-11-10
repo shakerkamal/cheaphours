@@ -17,6 +17,22 @@ internal static class PageCursor
 
     private const string DevicePrefix = "d1:";
     private const string BucketPrefix = "t1:";
+    private const string GoalPrefix = "g1:";
+
+    /// <summary>Encodes "continue below this goal" (goals are listed newest first).</summary>
+    /// <param name="before">The last goal on the page.</param>
+    /// <returns>The cursor.</returns>
+    public static string ForGoal(GoalId before) => Encode(GoalPrefix + before.Value);
+
+    /// <summary>Reads a goal cursor. Never throws.</summary>
+    /// <param name="cursor">The cursor the client sent.</param>
+    /// <param name="before">The goal to continue below.</param>
+    /// <returns><see langword="true"/> when the cursor is a valid goal cursor.</returns>
+    public static bool TryReadGoal(string? cursor, out GoalId before)
+    {
+        before = default;
+        return TryDecode(cursor, GoalPrefix, out var body) && GoalId.TryParse(body, out before);
+    }
 
     /// <summary>Encodes "continue after this device".</summary>
     /// <param name="after">The last device on the page.</param>

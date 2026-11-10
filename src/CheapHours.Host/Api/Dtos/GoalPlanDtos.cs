@@ -18,6 +18,22 @@ internal sealed record CreateGoalRequest(DeviceId VehicleDeviceId, DeviceId Char
 /// <param name="DepartureAt">When the car must be ready (UTC).</param>
 internal sealed record GoalDto(GoalId Id, DeviceId VehicleDeviceId, DeviceId ChargerDeviceId, int TargetSocPercent, DateTimeOffset DepartureAt);
 
+/// <summary>One goal in <c>GET /v1/goals</c>, with its current plan's status.</summary>
+/// <param name="Id">The goal id.</param>
+/// <param name="VehicleDeviceId">The vehicle to charge.</param>
+/// <param name="ChargerDeviceId">The charger to command.</param>
+/// <param name="TargetSocPercent">The target state of charge.</param>
+/// <param name="DepartureAt">When the car must be ready (UTC).</param>
+/// <param name="CurrentPlan">The goal's current plan version; read it in full at <c>/v1/goals/{id}/plan</c>.</param>
+internal sealed record GoalSummaryDto(GoalId Id, DeviceId VehicleDeviceId, DeviceId ChargerDeviceId, int TargetSocPercent, DateTimeOffset DepartureAt, PlanSummaryDto CurrentPlan);
+
+/// <summary>A goal's current plan version, as listed with the goal.</summary>
+/// <param name="Id">The plan id.</param>
+/// <param name="Version">The current version.</param>
+/// <param name="Status">Draft, confirmed, superseded or expired; the same status <c>GET /v1/goals/{id}/plan</c> shows.</param>
+/// <param name="ExpiresAt">When a draft expires (UTC); absent once confirmed.</param>
+internal sealed record PlanSummaryDto(PlanId Id, int Version, PlanStatus Status, DateTimeOffset? ExpiresAt);
+
 /// <summary>The response to <c>POST /v1/goals</c>: the goal and its first draft plan.</summary>
 /// <param name="Goal">The created goal.</param>
 /// <param name="Plan">Its draft plan; confirm it before it expires.</param>

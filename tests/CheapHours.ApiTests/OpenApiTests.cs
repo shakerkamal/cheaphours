@@ -18,7 +18,7 @@ public sealed partial class OpenApiTests(ApiFactory factory) : IClassFixture<Api
     }
 
     [Fact]
-    public async Task Document_lists_exactly_the_eleven_v1_operations_with_their_scopes()
+    public async Task Document_lists_exactly_the_twelve_v1_operations_with_their_scopes()
     {
         var doc = await GetDocumentAsync();
 
@@ -30,6 +30,7 @@ public sealed partial class OpenApiTests(ApiFactory factory) : IClassFixture<Api
             "GET /v1/devices read",
             "GET /v1/devices/{id} read",
             "GET /v1/devices/{id}/telemetry read",
+            "GET /v1/goals read",
             "GET /v1/goals/{id}/plan read",
             "GET /v1/prices read",
             "GET /v1/savings read",

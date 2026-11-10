@@ -19,6 +19,18 @@ internal static class PlanMapping
     public static GoalDto ToDto(StoredGoal goal) => new(
         goal.Goal.Id, goal.Goal.VehicleDeviceId, goal.Goal.ChargerDeviceId, goal.Goal.TargetSocPercent, goal.Goal.DepartureUtc);
 
+    public static GoalSummaryDto ToSummary(StoredGoal goal, StoredPlan current, DateTimeOffset now)
+    {
+        var plan = ToDto(current, now);
+        return new GoalSummaryDto(
+            goal.Goal.Id,
+            goal.Goal.VehicleDeviceId,
+            goal.Goal.ChargerDeviceId,
+            goal.Goal.TargetSocPercent,
+            goal.Goal.DepartureUtc,
+            new PlanSummaryDto(plan.Id, plan.Version, plan.Status, plan.ExpiresAt));
+    }
+
     public static PlanDto ToDto(StoredPlan stored, DateTimeOffset now)
     {
         var plan = stored.Plan;

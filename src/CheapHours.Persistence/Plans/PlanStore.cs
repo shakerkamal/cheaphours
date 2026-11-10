@@ -1,5 +1,6 @@
 using CheapHours.Core.Goals;
 using CheapHours.Core.Ids;
+using MongoDB.Bson;
 using MongoDB.Driver;
 
 namespace CheapHours.Persistence.Plans;
@@ -32,6 +33,25 @@ public sealed class PlanStore(IMongoDatabase database) : IPlanStore
             .SortByDescending(d => d.Version)
             .FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
         return document is null ? null : PlanDocumentMapper.ToStored(document);
+    }
+
+    /// <inheritdoc/>
+    public async Task<IReadOnlyList<StoredPlan>> GetCurrentManyAsync(OwnerId ownerId, IReadOnlyCollection<GoalId> goalIds, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(goalIds);
+        if (goalIds.Count == 0)
+        {
+            return [];
+        }
+
+        // Highest version first within each goal, then the first document of each group (served by ownerId_goalId).
+        var documents = await _plans.Aggregate()
+            .Match(Filter.Eq(d => d.OwnerId, ownerId.Value) & Filter.In(d => d.GoalId, goalIds.Select(g => g.Value)))
+            .SortBy(d => d.GoalId).ThenByDescending(d => d.Version)
+            .Group(new BsonDocument { { "_id", "$goalId" }, { "current", new BsonDocument("$first", "$$ROOT") } })
+            .ReplaceRoot(new BsonValueAggregateExpressionDefinition<BsonDocument, PlanDocument>("$current"))
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+        return [.. documents.Select(PlanDocumentMapper.ToStored)];
     }
 
     /// <inheritdoc/>

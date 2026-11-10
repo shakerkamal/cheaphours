@@ -71,6 +71,14 @@ public interface IGoalStore
     /// <returns>The goal, or <see langword="null"/> when it does not exist or belongs to another owner.</returns>
     Task<StoredGoal?> GetAsync(OwnerId ownerId, GoalId goalId, CancellationToken cancellationToken);
 
+    /// <summary>Lists one page of <paramref name="ownerId"/>'s goals, newest first (goal ids sort by creation time).</summary>
+    /// <param name="ownerId">The owner (D3).</param>
+    /// <param name="before">Continue below this goal, or <see langword="null"/> to start with the newest.</param>
+    /// <param name="take">The most goals to return.</param>
+    /// <param name="cancellationToken">Cancels the read.</param>
+    /// <returns>The goals, newest first.</returns>
+    Task<IReadOnlyList<StoredGoal>> ListAsync(OwnerId ownerId, GoalId? before, int take, CancellationToken cancellationToken);
+
     /// <summary>Lists every owner's goals that depart after <paramref name="departingAfter"/>; for the trusted worker only.</summary>
     /// <param name="departingAfter">Only goals departing after this time (UTC).</param>
     /// <param name="cancellationToken">Cancels the read.</param>

@@ -38,10 +38,31 @@ public sealed class PageCursorTests
     }
 
     [Fact]
+    public void Goal_cursor_round_trips()
+    {
+        var id = GoalId.Parse("goal_01JB7Z8K2QABCDEFGHJKMNPQRS");
+
+        Assert.True(PageCursor.TryReadGoal(PageCursor.ForGoal(id), out var before));
+        Assert.Equal(id, before);
+        Assert.DoesNotContain("goal_", PageCursor.ForGoal(id), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Kinds_do_not_mix()
     {
         Assert.False(PageCursor.TryReadBucket(PageCursor.ForDevice(DeviceId.Parse("dev_1")), out _));
         Assert.False(PageCursor.TryReadDevice(PageCursor.ForBucket(Ten), out _));
+        Assert.False(PageCursor.TryReadGoal(PageCursor.ForDevice(DeviceId.Parse("dev_1")), out _));
+        Assert.False(PageCursor.TryReadDevice(PageCursor.ForGoal(GoalId.Parse("goal_1")), out _));
+    }
+
+    [Theory]
+    [InlineData("g1:")]
+    [InlineData("g1:dev_1")]
+    [InlineData("d1:goal_1")]
+    public void Well_encoded_but_invalid_goal_cursors_are_refused(string text)
+    {
+        Assert.False(PageCursor.TryReadGoal(Raw(text), out _));
     }
 
     [Theory]
@@ -84,6 +105,7 @@ public sealed class PageCursorTests
     {
         _ = PageCursor.TryReadDevice(cursor, out _);
         _ = PageCursor.TryReadBucket(cursor, out _);
+        _ = PageCursor.TryReadGoal(cursor, out _);
         return true;
     }
 
@@ -93,6 +115,7 @@ public sealed class PageCursorTests
         var cursor = Raw(text ?? string.Empty);
         _ = PageCursor.TryReadDevice(cursor, out _);
         _ = PageCursor.TryReadBucket(cursor, out _);
+        _ = PageCursor.TryReadGoal(cursor, out _);
         return true;
     }
 }

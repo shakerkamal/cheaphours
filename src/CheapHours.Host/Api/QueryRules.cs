@@ -120,6 +120,25 @@ internal sealed class QueryRules
         return null;
     }
 
+    /// <summary>Checks a goal-list cursor.</summary>
+    /// <param name="cursor">The value sent, if any.</param>
+    /// <returns>The goal to continue below, or <see langword="null"/> to start with the newest.</returns>
+    public GoalId? GoalCursor(string? cursor)
+    {
+        if (cursor is null)
+        {
+            return null;
+        }
+
+        if (PageCursor.TryReadGoal(cursor, out var before))
+        {
+            return before;
+        }
+
+        Add("cursor", "Not a cursor this endpoint issued.");
+        return null;
+    }
+
     /// <summary>Checks a telemetry cursor against the widened range.</summary>
     /// <param name="cursor">The value sent, if any.</param>
     /// <param name="start">The widened range start (on the grid).</param>

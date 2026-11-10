@@ -22,7 +22,8 @@ page is binding.
 
 ## Status
 
-**Next:** delivery, starting with the small dashboard on the public API (`/opsx:propose`), then stop for review.
+**Next:** the small dashboard (`add-dashboard`) is built and its gate is green; waiting for the user's review
+before `/opsx:archive`.
 
 ### Done
 
@@ -128,10 +129,11 @@ page is binding.
     location or `DataProtection:KeysPath`.
 - **Message contracts:** `Message` envelope (id, time, type, schema version, `traceparent`), seven
   messages, shared JSON options, per-replica gateway routing key `gateway.{replicaId}.commands`.
-- **Public API contract:** the eleven `/v1` endpoints behind API-key auth (they answer 501 until
+- **Public API contract:** the twelve `/v1` endpoints behind API-key auth (they answer 501 until
   implemented), Problem Details from `ErrorCatalogue`, the OpenAPI snapshot `docs/api/openapi.v1.json`
   with a drift test, Scalar UI in Development. `PATCH /v1/goals/{id}` (scope `read`) changes a goal's
-  target or departure; `PlanDto` carries `pricesComplete`.
+  target or departure; `PlanDto` carries `pricesComplete`; `GET /v1/goals` (scope `read`) lists goals with
+  `GoalSummaryDto` and `PlanSummaryDto`.
 - **Command lifecycle (Core, no I/O):** `Command` with a fixed transition table and history,
   deterministic planned-command keys, retry policy with jittered backoff and `Retry-After`, reconcile
   decision (confirm, resend or fail) against the device's last observation. Property tests (FsCheck)
@@ -146,7 +148,10 @@ page is binding.
 - **Local environment:** `docker compose` with MongoDB 8.0 (single-node replica set, self-initialising),
   RabbitMQ 4.2, the Solidstudio OCPP 1.6 simulator built from a pinned commit, the car-cloud
   simulator (`5090`) and the heat-pump-cloud simulator (`5091`, posting to the gateway through
-  `host.docker.internal`), on pinned .NET images; five healthy services. The standalone Aspire dashboard
+  `host.docker.internal`), on pinned .NET images, and the owner dashboard's web server `web`
+  (`nginx:1.30.5-alpine`, `127.0.0.1:5070`, `dashboard/site` and `docker/web/nginx.conf` mounted read-only,
+  `/v1` forwarded to the API on `host.docker.internal:5080`, CSP / `Referrer-Policy` / `nosniff` on every
+  response, 502 while the API is stopped); six healthy services. The standalone Aspire dashboard
   (`aspire-dashboard:13.6.1`, UI `localhost:18888`, OTLP `4317`/`4318`, loopback only, no login, no health check)
   receives what the roles export when started with `OTEL_EXPORTER_OTLP_ENDPOINT` (README "Observe a command").
   - Local secrets live in a git-ignored `.env` (the charger password, the RabbitMQ account, the
@@ -341,7 +346,31 @@ page is binding.
     visible ASCII characters per owner for 24 hours; the same request replays the first response (4xx
     included), another body gets `409 idempotency-key-reused`, a repeat while the first runs gets `409
     conflict` (taken over after a minute), and responses of 500 and above are not kept.
+  - `GET /v1/goals`: the owner's goals newest first (by `_id`, so by creation), cursor `g1:` and `limit` 1–200,
+    each with its current plan's id, version, status and expiry through the same mapping as `PlanDto` (an expired
+    draft shows `Expired`; a change draft above a confirmed version is the current plan). Two queries per page:
+    `IGoalStore.ListAsync` and `IPlanStore.GetCurrentManyAsync` (one aggregation); a goal without a plan is a
+    500.
   - The README walks through today's prices and a demo goal for the simulated car and wallbox.
+- **Owner dashboard (`dashboard/`):** a static page on the public API only, no build step and no packages.
+  - Sections: devices (all pages), today's and tomorrow's `DE-LU` prices per Berlin day (23/24/25 h; "not
+    published yet"), goals with "more" and a form to set one (field errors from a 422 next to their fields), a
+    goal's plan on the period's prices with the three amounts, notices and a draft's expiry, confirming a draft
+    and following its commands until final, and 30-day savings. Each section shows its own problem or "API
+    unreachable".
+  - Readable for the owner: devices by name ("Charger", "Vehicle 2") with their facts ("11.0 kW max · via OCPP"),
+    ids only in hover titles; prices in ct/kWh; times as "Today, 07:00" / "Tomorrow, 07:00"; a plan as charging
+    runs with their duration, its chart from now to departure so the skipped dearer slots show; commands by what
+    they do; no power shown for an offline device.
+  - The key lives in session storage only and travels only in `X-Api-Key`; a 401 drops it and asks again;
+    "forget key" removes it. A read key does everything but confirm, which says an execute key is needed.
+  - Modules: `api.mjs` (the only `fetch`), `time.mjs` (Berlin display and Berlin→UTC without a library;
+    skipped spring hour moves forward, repeated autumn hour takes the first instant), `format.mjs`,
+    `paging.mjs`, `poll.mjs` (2 s for a minute, then 30 s, only while visible), `submit.mjs` (one
+    Idempotency-Key per submission, reused only after no response), `chart.mjs`, `plan.mjs`; `app.mjs` alone
+    touches the DOM and never parses HTML.
+  - `DashboardContractTests` checks every `request('<METHOD>', '<path>'` against the committed OpenAPI
+    document and refuses calls written another way; Node tests cover the logic.
 - **Observability (ADR-009):** every role registers OpenTelemetry through
   `ObservabilitySetup` (service name `cheaphours-{role}`, instance id = gateway replica id or machine name; the
   CheapHours sources and meters, ASP.NET Core without `/health` and `/ocpp`, HttpClient, `System.Runtime`), exports
@@ -376,7 +405,8 @@ page is binding.
   fault tests (`tests/CheapHours.IntegrationTests/Faults`): a worker stopped between save and publish, the
   broker stopped while three commands are accepted, a charger dropping mid-command and reconnecting
   `Available`; each command reaches its device exactly once.
-- **Tests:** 1743 green and 31 skipped by design (contract rules that do not fit a provider): unit,
+- **Tests:** 1765 green and 31 skipped by design (contract rules that do not fit a provider), plus 51 Node
+  tests for the dashboard (`node --test "dashboard/test/*.test.mjs"`): unit,
   property, architecture, API contract, provider contract, and integration tests against a
   real MongoDB and RabbitMQ in Testcontainers, with a real gateway on Kestrel, a real worker host and
   the API role on its own database (one model-based FsCheck test checks the bucket pipeline; four planner
@@ -387,7 +417,7 @@ page is binding.
 
 ### Left to build
 
-- **Delivery:** small dashboard on the public API, GitHub Actions pipeline, Helm chart, k6 load test,
+- **Delivery:** GitHub Actions pipeline (also running the dashboard's Node tests), Helm chart, k6 load test,
   README with architecture diagram and demo.
 - **CheapHours Assistant (separate repo):** MCP server and agent host over the public API only.
 
@@ -452,6 +482,9 @@ Pinned in `Directory.Packages.props`. `Microsoft.*` 10.0.x packages match the in
 | xunit.v3 | 4.0.2 | all tests |
 | xunit.v3.assert, xunit.v3.extensibility.core | 4.0.2 | Providers.Kit.Testing (abstract contract tests; a library cannot reference the runner package) |
 
+The dashboard uses no npm packages; its tests need Node 22+ only. Container images are pinned in
+`docker-compose.yml` (the dashboard's web server: `nginx:1.30.5-alpine`, nginx's stable line).
+
 Tests run on **Microsoft.Testing.Platform** (opted in via `global.json`): the .NET 10 SDK no longer
 runs xUnit v3 through VSTest, so `Microsoft.NET.Test.Sdk` and `xunit.runner.visualstudio` are not used.
 
@@ -475,7 +508,7 @@ dotnet test                                    # all tests; integration tests ne
 dotnet test --project tests/CheapHours.UnitTests --filter-class "*RoleParserTests"   # one class (MTP/xUnit v3 syntax)
 dotnet test --filter-method "*Role*"           # by method name; VSTest-style --filter is not supported
 dotnet run --project src/CheapHours.Host -- --role api      # or gateway | worker (Development via launchSettings)
-docker compose up -d --wait                    # local MongoDB, RabbitMQ, the three vendor simulators and the Aspire dashboard (needs .env, see README)
+docker compose up -d --wait                    # local MongoDB, RabbitMQ, the three vendor simulators, the Aspire dashboard and the owner dashboard on localhost:5070 (needs .env, see README)
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 dotnet run --project src/CheapHours.Host -- --role worker   # export to the dashboard (any role); open http://localhost:18888
 dotnet test --project tests/CheapHours.IntegrationTests --filter-class "*CommandTraceTests"   # one trace from the API call to the charger's confirmation; bounded metric tags
 dotnet run --project src/CheapHours.Host -- --role gateway --urls http://localhost:5081   # the charger connects and heat-pump webhooks arrive here
@@ -483,6 +516,8 @@ dotnet run --project src/CheapHours.Host -- --role worker      # stores telemetr
 dotnet test --project tests/CheapHours.UnitTests --filter-class "*GreedyPlannerPropertyTests"   # the planner's four properties, 1,000 cases each
 dotnet test --project tests/CheapHours.UnitTests --filter-class "*GoldenPlanTests"              # the plan for the recorded 2026-11-02 prices
 dotnet test --project tests/CheapHours.ContractTests             # the shared provider contract suite (no Docker needed)
+node --test "dashboard/test/*.test.mjs"        # the dashboard's logic (Node 22+, no packages); part of the gate
+dotnet test --project tests/CheapHours.ApiTests --filter-class "*DashboardContractTests"   # every dashboard call is in docs/api/openapi.v1.json
 dotnet test --project tests/CheapHours.IntegrationTests --filter-class "*CommandFaultTests"   # the command-dispatch gate: worker, broker and charger killed mid-command
 curl -s -X POST -H "X-Api-Key: <execute key>" -H "Idempotency-Key: $(uuidgen)" http://localhost:5080/v1/plans/<planId>/confirm   # confirm a draft; follow each command at /v1/commands/{id}
 dotnet run --project simulators/CheapHours.Simulators.CarCloud -- --Simulator:ClientSecret=<s> --Simulator:Accounts:0:RefreshToken=<t> --Admin:Enabled=true   # simulator without Docker
@@ -509,6 +544,8 @@ src/CheapHours.Host                  single entry point: --role api | gateway | 
 simulators/                          vendor stand-ins that reference no src project (CheapHours.Simulators.CarCloud, .HeatPumpCloud)
 tests/                               UnitTests, ArchitectureTests, ApiTests, ContractTests, IntegrationTests (+ later EndToEnd)
 docker/ocpp-simulator/               pinned build of the OCPP 1.6 charge-point simulator
+dashboard/site, dashboard/test       owner dashboard (static HTML, CSS, ES modules) and its Node tests
+docker/web/nginx.conf                web server for the dashboard, forwarding /v1 to the API
 docker-compose.yml, .env.example     local stack; .env is git-ignored
 docs/api/openapi.v1.json             committed public contract
 docs/adr/                            decision records

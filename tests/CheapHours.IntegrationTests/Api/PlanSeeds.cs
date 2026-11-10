@@ -18,12 +18,13 @@ internal static class PlanSeeds
         PlanStatus status = PlanStatus.Draft,
         bool pricesComplete = true,
         DateTimeOffset? madeAt = null,
-        IReadOnlyList<DateTimeOffset>? slotStarts = null)
+        IReadOnlyList<DateTimeOffset>? slotStarts = null,
+        GoalId? goalId = null)
     {
         var suffix = Guid.NewGuid().ToString("N")[..12];
         var made = madeAt ?? DateTimeOffset.UtcNow;
         var goal = new StoredGoal(
-            new Goal(GoalId.Parse("goal_" + suffix), owner, DeviceId.Parse("dev_car" + suffix), DeviceId.Parse("dev_box" + suffix), 80, departure),
+            new Goal(goalId ?? GoalId.Parse("goal_" + suffix), owner, DeviceId.Parse("dev_car" + suffix), DeviceId.Parse("dev_box" + suffix), 80, departure),
             PlanId.Parse("plan_" + suffix),
             made,
             made);

@@ -13,7 +13,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace CheapHours.Host.Api;
 
 /// <summary>
-/// The eleven <c>/v1</c> endpoints. Their contract (paths, scopes, parameters, response types) is fixed here, and
+/// The twelve <c>/v1</c> endpoints. Their contract (paths, scopes, parameters, response types) is fixed here, and
 /// each points at its handler.
 /// </summary>
 internal static class V1Endpoints
@@ -45,6 +45,8 @@ internal static class V1Endpoints
             .RequireAuthorization(ApiScopes.ReadPolicy).Produces<Page<PriceSlotDto>>().ProducesProblem(StatusCodes.Status400BadRequest);
 
         var goals = v1.MapGroup("/goals").WithTags("Goals and plans");
+        goals.MapGet("/", GoalEndpoints.ListAsync).WithName("ListGoals").WithSummary("List goals, newest first, with their current plan's status.")
+            .RequireAuthorization(ApiScopes.ReadPolicy).Produces<Page<GoalSummaryDto>>().ProducesProblem(StatusCodes.Status400BadRequest);
         goals.MapPost("/", GoalEndpoints.CreateAsync).Idempotent().WithName("CreateGoal").WithSummary("Set a goal; returns a draft plan.")
             .RequireAuthorization(ApiScopes.ReadPolicy).Produces<GoalCreatedResponse>(StatusCodes.Status201Created)
             .ProducesProblem(StatusCodes.Status400BadRequest).ProducesProblem(StatusCodes.Status404NotFound)
