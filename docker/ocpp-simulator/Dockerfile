@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 # Solidstudio OCPP Virtual Charge Point (Apache-2.0), built from a pinned commit for local development.
-FROM node:22.23.3-alpine3.24
+FROM node:26.13.0-alpine3.24
 
 ARG VCP_COMMIT=69bc17c30ef89d4a96603a0be0cb10430744b651
 

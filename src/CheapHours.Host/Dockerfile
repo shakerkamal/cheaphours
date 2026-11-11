@@ -4,7 +4,7 @@
 
 # The output is framework-dependent IL, the same for every platform, so it is built once on the build machine's
 # own platform and copied into each target platform's runtime image (no emulated SDK).
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0.401@sha256:e70cdb7f80b0348f5cb85f19a8f670fca061f033d57eed12fa003d58b0e06317 AS build
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:11.0.100@sha256:65f3c7c6a25a239ab3e6719f2896147e7b68242ff2d8818dd70498bde6ef8bea AS build
 WORKDIR /src
 
 # Restore first, from the project files and lock files only, so this layer is cached until a dependency changes.
@@ -28,7 +28,7 @@ RUN dotnet publish src/CheapHours.Host/CheapHours.Host.csproj \
 # Ubuntu chiseled: no shell, no package manager, non-root user app (1654). The -extra variant carries tzdata,
 # which Europe/Berlin price days need. The runtime is the newest 10.0 patch (the app rolls forward to it); the
 # packages' 10.0.12 runtime has fixable HIGH vulnerabilities.
-FROM mcr.microsoft.com/dotnet/aspnet:10.0.14-noble-chiseled-extra@sha256:a9298ccc39c6258ae71228479e2f3f8d2ceb6639a9927262a4b0ff7d319a0e7e
+FROM mcr.microsoft.com/dotnet/aspnet:10.0.15-noble-chiseled-extra@sha256:cae5b962bfb786606def03d250c6a645cc98839095c89e806e4bd8978a68115b
 WORKDIR /app
 COPY --from=build /app .
 # The image's app user (APP_UID), by id so a runtime can check it is not root.
