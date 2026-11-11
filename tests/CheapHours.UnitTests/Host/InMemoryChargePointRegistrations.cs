@@ -25,6 +25,14 @@ internal sealed class InMemoryChargePointRegistrations : IChargePointRegistratio
         return Task.CompletedTask;
     }
 
+    public async Task SeedAsync(IReadOnlyCollection<ChargePointRegistration> registrations, DateTimeOffset now, CancellationToken cancellationToken)
+    {
+        foreach (var registration in registrations)
+        {
+            await SeedAsync(registration, now, cancellationToken);
+        }
+    }
+
     public Task RevokeAsync(string chargePointId, DateTimeOffset at, CancellationToken cancellationToken)
     {
         if (_byId.TryGetValue(chargePointId, out var existing))

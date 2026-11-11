@@ -1,0 +1,46 @@
+# Weekly, grouped update proposals. Dependabot only proposes: each pull request runs the full pipeline, and merging a
+# package bump stays the owner's decision (Microsoft.* 10.0.x packages follow the installed runtime patch).
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups: # a package joins the first group it matches
+      microsoft:
+        patterns: ['Microsoft.*', 'System.*']
+      opentelemetry:
+        patterns: ['OpenTelemetry*']
+      test:
+        patterns: ['xunit*', 'Testcontainers*', 'FsCheck*', 'WireMock*', 'TngTech.*']
+      other:
+        patterns: ['*']
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']
+
+  - package-ecosystem: docker
+    directories:
+      - /src/CheapHours.Host
+      - /simulators/CheapHours.Simulators.CarCloud
+      - /simulators/CheapHours.Simulators.HeatPumpCloud
+      - /docker/ocpp-simulator
+    schedule:
+      interval: weekly
+    groups:
+      base-images:
+        patterns: ['*']
+
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      compose-images:
+        patterns: ['*']

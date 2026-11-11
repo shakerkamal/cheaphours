@@ -103,7 +103,7 @@ public sealed class PlannerConsumerTests(MongoFixture mongo, RabbitMqFixture rab
     {
         // A MongoDB of its own, on a fixed port so it comes back at the same address after a stop.
         var port = FreePort();
-        await using var own = new MongoDbBuilder(MongoFixture.Image).WithReplicaSet().WithPortBinding(port, 27017).Build();
+        await using var own = MongoFixture.NewContainerBuilder().WithPortBinding(port, 27017).Build();
         await own.StartAsync(Ct);
         var settings = MongoClientSettings.FromConnectionString(own.GetConnectionString());
         settings.ServerSelectionTimeout = TimeSpan.FromSeconds(2);

@@ -32,7 +32,9 @@ public sealed class GatewayCommandTracingTests(MongoFixture mongo)
         await charger.SendAsync($$"""[3,"{{call![1]!.GetValue<string>()}}",{"status":"Accepted"}]""");
         await commands.ResultsAsync(command.Id);
 
-        var trace = await spans.WaitForTraceAsync(stored.TraceId, ["ocpp RemoteStartTransaction"]);
+        // Spans are recorded when they end, and the handling span ends after its call span (it still publishes the
+        // result and acks), so wait for both.
+        var trace = await spans.WaitForTraceAsync(stored.TraceId, ["ocpp RemoteStartTransaction", $"{commands.Queue} process"]);
         var process = Assert.Single(trace, a => a.Kind == ActivityKind.Consumer);
         var ocpp = Assert.Single(trace, a => a.DisplayName == "ocpp RemoteStartTransaction");
         Assert.Equal(stored.SpanId, process.ParentSpanId);

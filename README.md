@@ -1,5 +1,7 @@
 # CheapHours
 
+[![CI](https://github.com/shakerkamal/cheaphours/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/shakerkamal/cheaphours/actions/workflows/ci.yml)
+
 A .NET 10 backend that connects energy devices from different vendors behind one device model and
 charges an electric car in the cheapest 15-minute slots before the driver leaves. Commands to devices
 are never lost and never applied twice.
@@ -31,6 +33,68 @@ node --test "dashboard/test/*.test.mjs"
 
 The build treats every warning as an error. Tests run on Microsoft.Testing.Platform (xUnit v3). The dashboard's
 logic is tested with Node's built-in test runner.
+
+Restores are locked: every project commits a `packages.lock.json`, and a restore fails on a package with a known
+vulnerability. After changing a package version in `Directory.Packages.props`, run `dotnet restore` once and commit
+the updated lock files; `dotnet restore --locked-mode` is what CI runs.
+
+## Continuous integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every pull request to `main`, every push to `main` and
+every `v*` tag. Its jobs run in parallel:
+
+| Check | What it does |
+|---|---|
+| `lint` | actionlint over the workflows, hadolint over every Dockerfile, the compose file validated with `.env.example` (empty secrets filled with throwaway values) |
+| `test` | locked and audited restore, Release build with warnings as errors, then the unit, property, architecture, API (with the OpenAPI drift test) and provider contract tests |
+| `integration` | the integration tests, the fault tests included, against MongoDB and RabbitMQ that Testcontainers starts on the runner's Docker |
+| `dashboard (22)`, `dashboard (24)` | the dashboard's Node tests on Node 22 and 24 |
+| `image` | the image built for `linux/amd64`, smoke-checked (`scripts/ci/image-smoke.sh`) and scanned by Trivy, which fails on a high or critical vulnerability that has a fix |
+| `publish` | only for `main` and `v*` tags, after every check above: the image built for `linux/amd64` and `linux/arm64`, pushed to GHCR with an SBOM and a signed provenance attestation |
+
+Test results (xUnit TRX) are kept with each run for 14 days. Every action is pinned to a commit SHA, the default
+token is read-only, only `publish` may write packages or sign, and no repository secret is needed;
+`WorkflowPolicyTests` checks these rules. [`codeql.yml`](.github/workflows/codeql.yml) scans the C# and JavaScript
+code on pull requests, on `main` and weekly, and Dependabot proposes grouped NuGet, Actions and base-image updates
+weekly. Why images are published this way: [ADR-010](docs/adr/010-images-built-scanned-and-attested-by-ci.md).
+
+Run the same checks locally (Git Bash or any POSIX shell, Docker running):
+
+```sh
+docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.12 -color
+for f in $(git ls-files '*Dockerfile'); do docker run --rm -i hadolint/hadolint:v2.15.1 < "$f"; done
+docker build -f src/CheapHours.Host/Dockerfile -t cheaphours:local .
+scripts/ci/image-smoke.sh cheaphours:local
+```
+
+On Git Bash for Windows, prefix the actionlint line with `MSYS_NO_PATHCONV=1` so the mount path is not rewritten.
+
+### The image
+
+One image runs every role; the role is its argument, and configuration comes from environment variables (the same
+keys as the user secrets, with `__` for `:`). The API and the gateway listen on port 8080.
+
+```sh
+docker pull ghcr.io/shakerkamal/cheaphours:main
+gh attestation verify oci://ghcr.io/shakerkamal/cheaphours:main --owner shakerkamal
+
+docker run --rm -p 5080:8080 \
+  -e ConnectionStrings__Mongo="mongodb://host.docker.internal:27017/?directConnection=true" \
+  ghcr.io/shakerkamal/cheaphours:main --role api
+```
+
+Tags: `sha-<short commit>` for every published commit (pin this one in a deployment), `main` for the newest green
+commit on `main`, and `X.Y.Z` and `X.Y` for a tag `vX.Y.Z`. There is no `latest`. The verification names the commit
+and the workflow run that built the image.
+
+### Repository settings (owner)
+
+Two settings cannot live in the repository's files:
+
+- **Branch protection for `main`:** require a pull request and these status checks: `lint`, `test`, `integration`,
+  `dashboard (22)`, `dashboard (24)`, `image`, `analyze (csharp)` and `analyze (javascript-typescript)`.
+- **Package visibility:** after the first push to `main`, make the GHCR package `cheaphours` public (packages start
+  private).
 
 ## Run
 

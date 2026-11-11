@@ -14,11 +14,13 @@ using CheapHours.IntegrationTests.Infrastructure;
 using CheapHours.IntegrationTests.Worker;
 using CheapHours.Messaging;
 using CheapHours.Messaging.Contracts;
+using CheapHours.Persistence;
 using CheapHours.Persistence.Commands;
 using CheapHours.Persistence.Plans;
 using CheapHours.Providers.Kit;
 using CheapHours.Tests.Observability;
 using Microsoft.Extensions.DependencyInjection;
+using MongoDB.Bson;
 
 namespace CheapHours.IntegrationTests.Observability;
 
@@ -163,11 +165,12 @@ public sealed class CommandTraceTests(MongoFixture mongo, RabbitMqFixture rabbit
                 // Fifty dispatches can take a while on a loaded machine running the whole suite.
                 var call = await charger.ReceiveAsync(TimeSpan.FromMinutes(2));
                 await charger.SendAsync($$"""[3,"{{call![1]!.GetValue<string>()}}",{"status":"Accepted"}]""");
-                await charger.CallAsync($$"""[2,"s-{{Guid.NewGuid():N}}","StatusNotification",{"connectorId":1,"errorCode":"NoError","status":"Charging","timestamp":"{{DateTimeOffset.UtcNow:yyyy-MM-ddTHH:mm:ss.fffZ}}"}]""");
+                var status = await charger.CallAsync($$"""[2,"s-{{Guid.NewGuid():N}}","StatusNotification",{"connectorId":1,"errorCode":"NoError","status":"Charging","timestamp":"{{DateTimeOffset.UtcNow:yyyy-MM-ddTHH:mm:ss.fffZ}}"}]""");
+                Assert.True(status[0]!.GetValue<int>() == 3, $"The gateway did not take the StatusNotification: {status.ToJsonString()}");
             }));
             foreach (var id in commands)
             {
-                await WorkerHost.EventuallyAsync(async () => (await store.FindAsync(id, Ct))!.Command.State, s => s == CommandState.Confirmed, TimeSpan.FromSeconds(60));
+                await ConfirmedAsync(store, gateway.DatabaseName, id);
             }
 
             var series = (await WaitForCountAsync(confirmations, CommandMetrics.ConfirmationDurationName, 50))
@@ -183,6 +186,29 @@ public sealed class CommandTraceTests(MongoFixture mongo, RabbitMqFixture rabbit
             chargers.ForEach(c => c.Dispose());
             await WorkerHost.StopAsync(worker);
         }
+    }
+
+    // Waits up to a minute for the command to be confirmed; if it is not, fails with its history and its device as
+    // stored, which is what the confirmation compares (the report's receipt time against the send).
+    private async Task ConfirmedAsync(CommandStore store, string database, CommandId id)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(60);
+        var stored = (await store.FindAsync(id, Ct))!;
+        while (stored.Command.State != CommandState.Confirmed && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(200, Ct);
+            stored = (await store.FindAsync(id, Ct))!;
+        }
+
+        if (stored.Command.State == CommandState.Confirmed)
+        {
+            return;
+        }
+
+        var device = await mongo.Client.GetDatabase(database).GetCollection<BsonDocument>(MongoIndexes.Devices)
+            .Find(new BsonDocument("_id", stored.Command.Request.DeviceId.Value)).FirstOrDefaultAsync(Ct);
+        var history = string.Join(", ", stored.Command.History.Select(h => $"{h.State}@{h.At:O}"));
+        Assert.Fail($"Command {id} is {stored.Command.State} after 60 s. History: {history}. Device: {device?.ToJson()}");
     }
 
     private static async Task<IReadOnlyList<Measurement>> WaitForCountAsync(MetricRecorder recorder, string instrument, int count)

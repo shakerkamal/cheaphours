@@ -26,6 +26,18 @@ public sealed class MongoFixture : IAsyncLifetime
     /// <summary>Gets a client for the running replica set.</summary>
     public IMongoClient Client { get; private set; } = null!;
 
+    /// <summary>
+    /// Every MongoDB container the tests start: a replica set on <see cref="Image"/>. MongoDB 8 refuses to start on
+    /// Linux kernels 6.19 to 7.0.13 (SERVER-121912), which GitHub's runners have; letting glibc own rseq
+    /// (<c>GLIBC_TUNABLES=glibc.pthread.rseq=1</c>, where the image sets 0) makes TCMalloc use per-thread caches and
+    /// mongod start. Slower allocation, same behaviour, and harmless on older kernels.
+    /// </summary>
+    /// <returns>A builder to add ports or other settings to.</returns>
+    public static MongoDbBuilder NewContainerBuilder() =>
+        new MongoDbBuilder(Image)
+            .WithReplicaSet()
+            .WithEnvironment("GLIBC_TUNABLES", "glibc.pthread.rseq=1");
+
     /// <summary>Returns a database name no other test class uses.</summary>
     /// <param name="owner">A readable prefix, usually the test class name.</param>
     /// <returns>The database name.</returns>
@@ -37,7 +49,7 @@ public sealed class MongoFixture : IAsyncLifetime
     {
         try
         {
-            _container = new MongoDbBuilder(Image).WithReplicaSet().Build();
+            _container = NewContainerBuilder().Build();
             await _container.StartAsync();
         }
         catch (DockerUnavailableException ex)

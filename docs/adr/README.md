@@ -15,6 +15,7 @@ the old one.
 | 007 | The agent changes devices only through confirmed plans | Planned |
 | [008](008-gateway-command-routing.md) | Gateway command routing through per-replica queues | Accepted |
 | [009](009-opentelemetry-and-trace-propagation.md) | OpenTelemetry tracing; messages keep the trace they were created in | Accepted |
+| [010](010-images-built-scanned-and-attested-by-ci.md) | Images are built only by CI, scanned before they are published, and attested | Accepted |
 
 ## Template
 

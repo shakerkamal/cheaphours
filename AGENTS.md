@@ -22,8 +22,8 @@ page is binding.
 
 ## Status
 
-**Next:** the small dashboard (`add-dashboard`) is built and its gate is green; waiting for the user's review
-before `/opsx:archive`.
+**Next:** the CI pipeline (`add-ci-pipeline`) is built and its local gate is green; waiting for the user's review,
+then a pull request whose run is the pipeline's first proof, before `/opsx:archive`.
 
 ### Done
 
@@ -397,15 +397,45 @@ before `/opsx:archive`.
     `TelemetryBatchWriter.WriteAsync` returns it stored per provider.
   - Tests observe spans and metrics in-process (`tests/Shared/Observability`: `SpanRecorder`, `MetricRecorder`);
     the export tests post to a WireMock OTLP receiver.
+- **CI pipeline and image (ADR-010):**
+  - `.github/workflows/ci.yml` on pull requests to `main`, pushes to `main`, `v*` tags and by hand; parallel jobs, each
+    with a time limit: `lint` (actionlint and hadolint from images pinned by digest, the compose file with
+    `.env.example` and throwaway secrets), `test` (locked restore, Release build, Unit, Architecture, Api and Contract
+    tests), `integration` (Testcontainers on the runner's Docker, fault tests included), `dashboard` (Node 22 and 24),
+    `image` (amd64 build with the `gha` cache, `scripts/ci/image-smoke.sh`, Trivy failing on a fixable HIGH or
+    CRITICAL, SARIF to code scanning except for forks). xUnit TRX results kept 14 days, also when tests fail.
+  - `publish` needs every job and runs only for pushes to `main` or `v*`: amd64 and arm64 from the same cache, pushed
+    to `ghcr.io/shakerkamal/cheaphours` with `sha-<short>`, `main` or `X.Y.Z`/`X.Y` (no `latest`), OCI labels, SBOM,
+    BuildKit provenance and `actions/attest-build-provenance`. It alone gets `packages`, `id-token` and
+    `attestations: write`; the workflow default is `contents: read`; no repository secret; pull-request runs are
+    cancelled by a newer push, `main` and tag runs queue.
+  - `codeql.yml` (C# built as CI builds it, JavaScript; `security-extended`; pull requests, `main`, weekly) and
+    `dependabot.yml` (weekly, grouped: NuGet, Actions, each Dockerfile's base image, compose images).
+  - `WorkflowPolicyTests` (ArchitectureTests) reads the workflows as text: actions pinned to a 40-hex SHA with a
+    `# v…` comment, workflow permissions exactly `contents: read`, publish-only write scopes, `timeout-minutes` on every
+    job, no `pull_request_target`; each rule proven by a planted workflow.
+  - `src/CheapHours.Host/Dockerfile`: the build stage on `$BUILDPLATFORM` (SDK pinned by digest, locked restore layer,
+    framework-dependent publish once for both platforms); runtime `aspnet:10.0.14-noble-chiseled-extra` by digest (no
+    shell, tzdata for Berlin, user 1654; the newest 10.0 patch because 10.0.12's runtime fails the scan), entrypoint
+    `dotnet CheapHours.Host.dll`, the role as arguments, port 8080. `appsettings.Development.json` is not published.
+    Every Dockerfile's `USER` is numeric (hadolint DL3066).
+  - Every project commits `packages.lock.json`; `NuGetAudit` (all, low) makes a vulnerable package fail the restore;
+    `ContinuousIntegrationBuild` on GitHub Actions.
+  - The gateway seeds its charger registrations in one ordered bulk write, so startup does not grow with the number
+    of chargers (found under full-suite load, where one write took 300–700 ms).
+  - Found by the first pull-request run: every MongoDB test container comes from `MongoFixture.NewContainerBuilder()`,
+    which sets `GLIBC_TUNABLES=glibc.pthread.rseq=1`, because MongoDB 8 refuses to start on the runner's kernel 7.0
+    (SERVER-121912); and the heat-pump simulator creates its delivery timer in `StartAsync`, because .NET 10 runs
+    `BackgroundService.ExecuteAsync` on the thread pool and a test could advance the fake clock before the timer existed.
 - **ADRs:** 001 (modular monolith), 002 (time-series telemetry), 003 (RabbitMQ), 004 (own outbox and
   inbox), 005 (greedy cheapest-slot planner), 006 (OCPP 1.6J smart-charging messages), 008 (gateway command
-  routing), 009 (OpenTelemetry; messages keep their trace context).
+  routing), 009 (OpenTelemetry; messages keep their trace context), 010 (images built only by CI, scanned, attested).
 - **Reliability catalogue:** `docs/reliability.md` maps every row of the System Design reliability table to
   its tests by class and method; `ReliabilityCatalogueTests` fails when a named test no longer exists. Gate
   fault tests (`tests/CheapHours.IntegrationTests/Faults`): a worker stopped between save and publish, the
   broker stopped while three commands are accepted, a charger dropping mid-command and reconnecting
   `Available`; each command reaches its device exactly once.
-- **Tests:** 1765 green and 31 skipped by design (contract rules that do not fit a provider), plus 51 Node
+- **Tests:** 1780 green and 31 skipped by design (contract rules that do not fit a provider), plus 51 Node
   tests for the dashboard (`node --test "dashboard/test/*.test.mjs"`): unit,
   property, architecture, API contract, provider contract, and integration tests against a
   real MongoDB and RabbitMQ in Testcontainers, with a real gateway on Kestrel, a real worker host and
@@ -417,8 +447,8 @@ before `/opsx:archive`.
 
 ### Left to build
 
-- **Delivery:** GitHub Actions pipeline (also running the dashboard's Node tests), Helm chart, k6 load test,
-  README with architecture diagram and demo.
+- **Delivery:** Helm chart (deploys the published `sha-` image), k6 load test, README with architecture diagram and
+  demo.
 - **CheapHours Assistant (separate repo):** MCP server and agent host over the public API only.
 
 ### Later, if the project continues (not planned; decided with the user)
@@ -455,7 +485,8 @@ before `/opsx:archive`.
 ### Package versions
 
 Pinned in `Directory.Packages.props`. `Microsoft.*` 10.0.x packages match the installed runtime patch
-(10.0.12).
+(10.0.12). Every project commits a `packages.lock.json`: after changing a version, run `dotnet restore` once and
+commit the lock files (CI restores with `--locked-mode`).
 
 | Package | Version | Used by |
 |---|---|---|
@@ -484,6 +515,16 @@ Pinned in `Directory.Packages.props`. `Microsoft.*` 10.0.x packages match the in
 
 The dashboard uses no npm packages; its tests need Node 22+ only. Container images are pinned in
 `docker-compose.yml` (the dashboard's web server: `nginx:1.30.5-alpine`, nginx's stable line).
+
+The image and the pipeline pin by digest: `mcr.microsoft.com/dotnet/sdk:10.0.401` (build stage) and
+`mcr.microsoft.com/dotnet/aspnet:10.0.14-noble-chiseled-extra` (runtime; the newest 10.0 patch, ahead of the
+packages, because 10.0.12's runtime has fixable HIGH vulnerabilities) in `src/CheapHours.Host/Dockerfile`;
+`rhysd/actionlint:1.7.12`, `hadolint/hadolint:v2.15.1` in `ci.yml`, and Trivy 0.76.2 (`aquasec/trivy` locally,
+`version:` of the Trivy action in CI). Actions are pinned by commit SHA with the version in a comment: `actions/checkout`
+v7.0.1, `actions/setup-dotnet` v6.1.0, `actions/setup-node` v7.1.0, `actions/upload-artifact` v7.0.2,
+`docker/setup-buildx-action` v4.4.1, `docker/login-action` v4.8.0, `docker/metadata-action` v6.2.0,
+`docker/build-push-action` v7.4.0, `aquasecurity/trivy-action` v0.36.0, `github/codeql-action` v4.39.3,
+`actions/attest-build-provenance` v4.2.2.
 
 Tests run on **Microsoft.Testing.Platform** (opted in via `global.json`): the .NET 10 SDK no longer
 runs xUnit v3 through VSTest, so `Microsoft.NET.Test.Sdk` and `xunit.runner.visualstudio` are not used.
@@ -517,6 +558,12 @@ dotnet test --project tests/CheapHours.UnitTests --filter-class "*GreedyPlannerP
 dotnet test --project tests/CheapHours.UnitTests --filter-class "*GoldenPlanTests"              # the plan for the recorded 2026-11-02 prices
 dotnet test --project tests/CheapHours.ContractTests             # the shared provider contract suite (no Docker needed)
 node --test "dashboard/test/*.test.mjs"        # the dashboard's logic (Node 22+, no packages); part of the gate
+dotnet restore --locked-mode                   # what CI restores; fails when a lock file is stale or a package is vulnerable
+docker build -f src/CheapHours.Host/Dockerfile -t cheaphours:local .   # the one image (role as argument: --role api)
+scripts/ci/image-smoke.sh cheaphours:local     # the image checks CI runs: liveness, unknown role, non-root, Berlin tzdata, no secrets
+MSYS_NO_PATHCONV=1 docker run --rm -v "$(pwd -W):/repo" -w /repo rhysd/actionlint:1.7.12 -color   # lint the workflows (Git Bash; elsewhere "$PWD")
+for f in $(git ls-files '*Dockerfile'); do docker run --rm -i hadolint/hadolint:v2.15.1 < "$f"; done   # lint every Dockerfile
+dotnet test --project tests/CheapHours.ArchitectureTests --filter-class "*WorkflowPolicyTests"   # pinned actions, least privilege, time limits
 dotnet test --project tests/CheapHours.ApiTests --filter-class "*DashboardContractTests"   # every dashboard call is in docs/api/openapi.v1.json
 dotnet test --project tests/CheapHours.IntegrationTests --filter-class "*CommandFaultTests"   # the command-dispatch gate: worker, broker and charger killed mid-command
 curl -s -X POST -H "X-Api-Key: <execute key>" -H "Idempotency-Key: $(uuidgen)" http://localhost:5080/v1/plans/<planId>/confirm   # confirm a draft; follow each command at /v1/commands/{id}
@@ -550,6 +597,9 @@ docker-compose.yml, .env.example     local stack; .env is git-ignored
 docs/api/openapi.v1.json             committed public contract
 docs/adr/                            decision records
 docs/reliability.md                  reliability table → tests (checked by ReliabilityCatalogueTests)
+src/CheapHours.Host/Dockerfile       the one image for every role (built and published by CI only, ADR-010)
+.github/workflows/                   ci.yml (lint, tests, image, publish) and codeql.yml; .github/dependabot.yml
+scripts/ci/                          image-smoke.sh, run by CI and locally
 openspec/                            specs and changes (local only, git-ignored)
 ```
 

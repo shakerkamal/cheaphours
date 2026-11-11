@@ -26,6 +26,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Development settings stay on the developer's machine: never in a publish output or the image. -->
+    <Content Update="appsettings.Development.json" CopyToPublishDirectory="Never" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="CheapHours.UnitTests" />
     <InternalsVisibleTo Include="CheapHours.ApiTests" />
     <InternalsVisibleTo Include="CheapHours.IntegrationTests" />

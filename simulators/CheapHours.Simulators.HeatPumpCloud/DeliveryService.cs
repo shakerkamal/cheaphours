@@ -10,11 +10,28 @@ namespace CheapHours.Simulators.HeatPumpCloud;
 internal sealed class DeliveryService(SimulatorOptions options, SimulatorState state, WebhookSender sender, TimeProvider time) : BackgroundService
 {
     private readonly ConcurrentDictionary<Task, byte> _running = new();
+    private PeriodicTimer? _timer;
+
+    /// <inheritdoc/>
+    public override Task StartAsync(CancellationToken cancellationToken)
+    {
+        // ExecuteAsync runs on the thread pool, so a timer created there could miss a clock that moves right after
+        // start; created here, the schedule starts when the host starts.
+        _timer = new PeriodicTimer(options.Interval, time);
+        return base.StartAsync(cancellationToken);
+    }
+
+    /// <inheritdoc/>
+    public override void Dispose()
+    {
+        _timer?.Dispose();
+        base.Dispose();
+    }
 
     /// <inheritdoc/>
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        using var timer = new PeriodicTimer(options.Interval, time);
+        var timer = _timer ?? throw new InvalidOperationException("The delivery service runs only after StartAsync.");
         try
         {
             while (await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false))

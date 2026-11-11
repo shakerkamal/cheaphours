@@ -8,3 +8,6 @@
 TestResults/
 openspec/
 docs/plan.md
+.github/
+dashboard/
+tests/
