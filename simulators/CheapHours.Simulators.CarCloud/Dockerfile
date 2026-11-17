@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 # The car-cloud simulator for local development. Build context: the repository root (it needs the shared
 # build files); see docker-compose.yml, service car-cloud.
-FROM mcr.microsoft.com/dotnet/sdk:10.0.401 AS build
+FROM mcr.microsoft.com/dotnet/sdk:11.0.100 AS build
 WORKDIR /src
 COPY global.json Directory.Build.props Directory.Packages.props .editorconfig ./
 COPY simulators/CheapHours.Simulators.CarCloud/CheapHours.Simulators.CarCloud.csproj simulators/CheapHours.Simulators.CarCloud/
@@ -10,7 +10,7 @@ COPY simulators/CheapHours.Simulators.CarCloud/ simulators/CheapHours.Simulators
 RUN dotnet publish simulators/CheapHours.Simulators.CarCloud/CheapHours.Simulators.CarCloud.csproj \
     --configuration Release --no-restore --output /app
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0.12
+FROM mcr.microsoft.com/dotnet/aspnet:11.0.0
 WORKDIR /app
 COPY --from=build /app .
 # The image's app user (APP_UID), by id so a runtime can check it is not root.
