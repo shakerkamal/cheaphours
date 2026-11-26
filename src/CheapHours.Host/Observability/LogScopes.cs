@@ -36,11 +36,14 @@ internal static class LogScopes
         };
         if (providerId is not null)
         {
-            values[ProviderId] = providerId;
+            values[ProviderId] = SanitizeForLog(providerId);
         }
 
         return logger.BeginScope(values);
     }
+
+    private static string SanitizeForLog(string value) =>
+        value.Replace("\r", "\\r").Replace("\n", "\\n");
 
     /// <summary>Opens the scope of handling a device's data (a frame, a webhook, a poll result).</summary>
     /// <param name="logger">The logger.</param>
@@ -50,10 +53,10 @@ internal static class LogScopes
     public static IDisposable? ForDevice(ILogger logger, string providerId, string? externalId)
     {
         ArgumentNullException.ThrowIfNull(logger);
-        var values = new Dictionary<string, object?>(2, StringComparer.Ordinal) { [ProviderId] = providerId };
+        var values = new Dictionary<string, object?>(2, StringComparer.Ordinal) { [ProviderId] = SanitizeForLog(providerId) };
         if (externalId is not null)
         {
-            values[ExternalId] = externalId;
+            values[ExternalId] = SanitizeForLog(externalId);
         }
 
         return logger.BeginScope(values);
